@@ -11,6 +11,7 @@ import {
   View,
   Platform,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
   format,
   startOfMonth,
@@ -125,6 +126,9 @@ export default function DashboardScreen({ session, profile, branches }) {
   const homeLoadingRef = useRef(false);
   const entryLoadingRef = useRef(false);
   const branchAnalysisRequestRef = useRef(0);
+  const insets = useSafeAreaInsets();
+  const contentPaddingBottom = 96 + insets.bottom;
+  const bottomTabPaddingBottom = Math.max(10, insets.bottom);
 
   const isAdmin = profile?.role === 'admin';
 
@@ -1632,7 +1636,13 @@ export default function DashboardScreen({ session, profile, branches }) {
             </View>
           </Pressable>
         </Modal>
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView
+          style={styles.scroll}
+          contentContainerStyle={[
+            styles.content,
+            { paddingBottom: contentPaddingBottom },
+          ]}
+        >
           <View style={styles.header}>
             <Pressable style={styles.menuButton} onPress={() => setMenuOpen(true)}>
               <Text style={styles.menuButtonText}>☰</Text>
@@ -2200,7 +2210,13 @@ export default function DashboardScreen({ session, profile, branches }) {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        style={styles.scroll}
+        contentContainerStyle={[
+          styles.content,
+          { paddingBottom: contentPaddingBottom },
+        ]}
+      >
         <View style={styles.header}>
           <View>
             <Text style={styles.title}>지점 매출 현황</Text>
@@ -2483,7 +2499,12 @@ export default function DashboardScreen({ session, profile, branches }) {
           <Text style={styles.loadingText}>데이터 불러오는 중...</Text>
         ) : null}
       </ScrollView>
-      <View style={styles.bottomTab}>
+      <View
+        style={[
+          styles.bottomTab,
+          { paddingBottom: bottomTabPaddingBottom },
+        ]}
+      >
         {[
           { key: 'home', label: '홈' },
           { key: 'entry', label: '매출입력' },
@@ -2517,8 +2538,12 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: '#f3f5f9',
   },
+  scroll: {
+    flex: 1,
+  },
   content: {
     padding: 16,
+    paddingTop: 42,
     paddingBottom: 96,
   },
   header: {

@@ -7,6 +7,7 @@ import {
   View,
 } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { supabase } from './src/lib/supabase';
 import LoginScreen from './src/screens/LoginScreen';
 import DashboardScreen from './src/screens/DashboardScreen';
@@ -78,64 +79,78 @@ export default function App() {
   }, [loadUserData]);
 
   if (!session) {
-    return <LoginScreen />;
+    return (
+      <SafeAreaProvider>
+        <LoginScreen />
+      </SafeAreaProvider>
+    );
   }
 
   if (loading) {
     return (
-      <View style={styles.center}>
-        <ActivityIndicator size="large" color="#101828" />
-        <Text style={styles.loadingText}>데이터 준비 중...</Text>
-      </View>
+      <SafeAreaProvider>
+        <View style={styles.center}>
+          <ActivityIndicator size="large" color="#101828" />
+          <Text style={styles.loadingText}>데이터 준비 중...</Text>
+        </View>
+      </SafeAreaProvider>
     );
   }
 
   if (error) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.errorText}>{error}</Text>
-      </View>
+      <SafeAreaProvider>
+        <View style={styles.center}>
+          <Text style={styles.errorText}>{error}</Text>
+        </View>
+      </SafeAreaProvider>
     );
   }
 
   if (!profile) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.errorText}>
-          프로필이 없습니다. 관리자에게 계정 설정을 요청하세요.
-        </Text>
-      </View>
+      <SafeAreaProvider>
+        <View style={styles.center}>
+          <Text style={styles.errorText}>
+            프로필이 없습니다. 관리자에게 계정 설정을 요청하세요.
+          </Text>
+        </View>
+      </SafeAreaProvider>
     );
   }
 
   if (profile.active === false) {
     return (
-      <View style={styles.center}>
-        <Text style={styles.errorText}>현재 계정이 비활성화되었습니다.</Text>
-        <Pressable style={styles.logout} onPress={() => supabase.auth.signOut()}>
-          <Text style={styles.logoutText}>로그아웃</Text>
-        </Pressable>
-      </View>
+      <SafeAreaProvider>
+        <View style={styles.center}>
+          <Text style={styles.errorText}>현재 계정이 비활성화되었습니다.</Text>
+          <Pressable style={styles.logout} onPress={() => supabase.auth.signOut()}>
+            <Text style={styles.logoutText}>로그아웃</Text>
+          </Pressable>
+        </View>
+      </SafeAreaProvider>
     );
   }
 
   if (profile.must_change_password) {
     return (
-      <ChangePasswordScreen
-        userId={profile.id}
-        onComplete={() => {
-          setProfile((prev) => ({ ...prev, must_change_password: false }));
-          loadUserData();
-        }}
-      />
+      <SafeAreaProvider>
+        <ChangePasswordScreen
+          userId={profile.id}
+          onComplete={() => {
+            setProfile((prev) => ({ ...prev, must_change_password: false }));
+            loadUserData();
+          }}
+        />
+      </SafeAreaProvider>
     );
   }
 
   return (
-    <>
+    <SafeAreaProvider>
       <StatusBar style="dark" />
       <DashboardScreen session={session} profile={profile} branches={branches} />
-    </>
+    </SafeAreaProvider>
   );
 }
 
