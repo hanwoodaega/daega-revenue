@@ -10,6 +10,7 @@ import {
   TextInput,
   View,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -126,6 +127,8 @@ export default function DashboardScreen({ session, profile, branches }) {
   const homeLoadingRef = useRef(false);
   const entryLoadingRef = useRef(false);
   const branchAnalysisRequestRef = useRef(0);
+  const { width } = useWindowDimensions();
+  const isWebCompact = Platform.OS === 'web' && width < 1280;
   const insets = useSafeAreaInsets();
   const contentPaddingBottom = 96 + insets.bottom;
   const bottomTabPaddingBottom = Math.max(10, insets.bottom);
@@ -1612,7 +1615,7 @@ export default function DashboardScreen({ session, profile, branches }) {
     );
   };
 
-  if (isAdmin && Platform.OS === 'web' && false) {
+  if (isAdmin && Platform.OS === 'web' && isWebCompact) {
     return (
       <SafeAreaView style={styles.container}>
         <Modal transparent visible={menuOpen} animationType="fade">
