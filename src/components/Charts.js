@@ -50,6 +50,10 @@ export function LineChartSimple({
   labelFormatter,
   valueFormatter,
   showMinMax = false,
+  showCompareMinMax = false,
+  primaryLabel,
+  compareLabel,
+  compareFirst = false,
   showPointLabels = false,
   minOverride = null,
   showMinLeft = false,
@@ -70,6 +74,11 @@ export function LineChartSimple({
     max: displayMax,
     hasValues: hasDisplayValues,
   } = useMemo(() => getMinMax(data), [data]);
+  const {
+    min: compareDisplayMin,
+    max: compareDisplayMax,
+    hasValues: hasCompareDisplayValues,
+  } = useMemo(() => getMinMax(compareData || []), [compareData]);
   const adjustedDisplayMin = minOverride ?? displayMin;
   const adjustedMin = minOverride ?? min;
   const adjustedMax = max <= adjustedMin ? adjustedMin + 1 : max;
@@ -82,6 +91,12 @@ export function LineChartSimple({
   const maxLabel = valueFormatter
     ? valueFormatter(displayMax)
     : formatCurrency(displayMax);
+  const compareMinLabel = valueFormatter
+    ? valueFormatter(compareDisplayMin)
+    : formatCurrency(compareDisplayMin);
+  const compareMaxLabel = valueFormatter
+    ? valueFormatter(compareDisplayMax)
+    : formatCurrency(compareDisplayMax);
   const range = adjustedMax - adjustedMin || 1;
   const [hovered, setHovered] = useState(null);
   const tooltipFontSize = Platform.OS === 'web' ? 14 : 12;
@@ -184,10 +199,34 @@ export function LineChartSimple({
       <View style={styles.titleRow}>
         <Text style={styles.title}>{title}</Text>
         {showMinMax && hasDisplayValues ? (
-          <View style={styles.minMaxRow}>
-            <Text style={styles.minMaxText}>최저 {minLabel}</Text>
-            <Text style={styles.minMaxText}>최고 {maxLabel}</Text>
-          </View>
+          compareData && showCompareMinMax && hasCompareDisplayValues ? (
+            <View style={styles.minMaxStack}>
+              {compareFirst ? (
+                <>
+                  <Text style={styles.minMaxText}>
+                    {compareLabel || '비교'} 최저 {compareMinLabel} · 최고 {compareMaxLabel}
+                  </Text>
+                  <Text style={styles.minMaxText}>
+                    {primaryLabel || '현재'} 최저 {minLabel} · 최고 {maxLabel}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.minMaxText}>
+                    {primaryLabel || '현재'} 최저 {minLabel} · 최고 {maxLabel}
+                  </Text>
+                  <Text style={styles.minMaxText}>
+                    {compareLabel || '비교'} 최저 {compareMinLabel} · 최고 {compareMaxLabel}
+                  </Text>
+                </>
+              )}
+            </View>
+          ) : (
+            <View style={styles.minMaxRow}>
+              <Text style={styles.minMaxText}>최저 {minLabel}</Text>
+              <Text style={styles.minMaxText}>최고 {maxLabel}</Text>
+            </View>
+          )
         ) : null}
       </View>
       {!hasCombinedValues ? (

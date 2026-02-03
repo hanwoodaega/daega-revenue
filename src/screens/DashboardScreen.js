@@ -55,6 +55,9 @@ const getTrendSymbol = (delta) => {
   return '→';
 };
 
+const HANWOO_BRANCHES = ['한우대가 순천점', '한우대가 광양점'];
+const MART_CAFE_BRANCHES = ['대가정육마트', '카페 일공구공'];
+
 const WEEKDAY_LABELS = ['월', '화', '수', '목', '금', '토', '일'];
 
 const isWithinIsoRange = (dateKey, startKey, endKey) =>
@@ -105,6 +108,7 @@ const EntryAmountField = memo(function EntryAmountField({
   value,
   onChangeText,
   onBlur,
+  placeholder = '금액을 입력하세요',
 }) {
   return (
     <View style={styles.entryBlock}>
@@ -112,7 +116,7 @@ const EntryAmountField = memo(function EntryAmountField({
       <TextInput
         style={styles.entryInput}
         keyboardType="numeric"
-        placeholder="금액을 입력하세요"
+        placeholder={placeholder}
         value={value}
         onChangeText={onChangeText}
         onBlur={onBlur}
@@ -133,7 +137,12 @@ export default function DashboardScreen({ session, profile, branches }) {
   const [branchTotals, setBranchTotals] = useState([]);
   const [entryTotal, setEntryTotal] = useState('');
   const [entryMid, setEntryMid] = useState('');
+  const [entryTotalByBranch, setEntryTotalByBranch] = useState({});
+  const [entryMidByBranch, setEntryMidByBranch] = useState({});
   const [entryAutoSaveNotice, setEntryAutoSaveNotice] = useState('');
+  const [homeBranchTotals, setHomeBranchTotals] = useState({});
+  const [recentSeriesByBranch, setRecentSeriesByBranch] = useState({});
+  const [weekSeriesByBranch, setWeekSeriesByBranch] = useState({});
   const [monthCursor, setMonthCursor] = useState(startOfMonth(new Date()));
   const [monthlyEntries, setMonthlyEntries] = useState([]);
   const [historyEditingDate, setHistoryEditingDate] = useState(null);
@@ -224,6 +233,61 @@ export default function DashboardScreen({ session, profile, branches }) {
 
   const isAdmin = profile?.role === 'admin';
 
+  const branchesById = useMemo(() => {
+    const map = {};
+    (branches || []).forEach((branch) => {
+      map[branch.id] = branch;
+    });
+    return map;
+  }, [branches]);
+
+  const managerBranchNames = useMemo(() => {
+    if (isAdmin) return [];
+    const currentName = branchesById[profile?.branch_id]?.name;
+    if (!currentName) return [];
+    if (HANWOO_BRANCHES.includes(currentName)) return HANWOO_BRANCHES;
+    if (MART_CAFE_BRANCHES.includes(currentName)) return MART_CAFE_BRANCHES;
+    return [currentName];
+  }, [branchesById, isAdmin, profile?.branch_id]);
+
+  const managerBranches = useMemo(() => {
+    const filtered = branches.filter((branch) =>
+      managerBranchNames.includes(branch.name),
+    );
+    const order = new Map(
+      managerBranchNames.map((name, index) => [name, index]),
+    );
+    return filtered.sort(
+      (a, b) => (order.get(a.name) ?? 99) - (order.get(b.name) ?? 99),
+    );
+  }, [branches, managerBranchNames]);
+  const managerBranchIds = useMemo(
+    () => managerBranches.map((branch) => branch.id),
+    [managerBranches],
+  );
+  const managerGroup = useMemo(() => {
+    if (managerBranchNames.some((name) => HANWOO_BRANCHES.includes(name))) {
+      return 'hanwoo';
+    }
+    if (managerBranchNames.some((name) => MART_CAFE_BRANCHES.includes(name))) {
+      return 'mart-cafe';
+    }
+    return 'single';
+  }, [managerBranchNames]);
+
+  const suncheonBranch = useMemo(
+    () =>
+      managerBranches.find((branch) => branch.name === '한우대가 순천점') ||
+      branches.find((branch) => branch.name === '한우대가 순천점'),
+    [branches, managerBranches],
+  );
+  const gwangyangBranch = useMemo(
+    () =>
+      managerBranches.find((branch) => branch.name === '한우대가 광양점') ||
+      branches.find((branch) => branch.name === '한우대가 광양점'),
+    [branches, managerBranches],
+  );
+
   const branchName = useMemo(() => {
     const branch = branches?.find((item) => item.id === selectedBranchId);
     return branch?.name ?? '-';
@@ -231,9 +295,20 @@ export default function DashboardScreen({ session, profile, branches }) {
 
   useEffect(() => {
     if (!selectedBranchId && branches?.length) {
-      setSelectedBranchId(branches[0].id);
+      const fallbackId = isAdmin
+        ? branches[0].id
+        : managerBranchIds[0] || branches[0].id;
+      setSelectedBranchId(fallbackId);
     }
-  }, [branches, selectedBranchId]);
+  }, [branches, isAdmin, managerBranchIds, selectedBranchId]);
+
+  useEffect(() => {
+    if (isAdmin) return;
+    if (!managerBranchIds.length) return;
+    if (!selectedBranchId || !managerBranchIds.includes(selectedBranchId)) {
+      setSelectedBranchId(managerBranchIds[0]);
+    }
+  }, [isAdmin, managerBranchIds, selectedBranchId]);
 
   useEffect(() => {
     if (!branchAnalysisId && branches?.length) {
@@ -365,10 +440,12 @@ export default function DashboardScreen({ session, profile, branches }) {
     const branchIds = branches.map((branch) => branch.id);
     const chartBranchIds = isAdmin
       ? branchIds
-      : selectedBranchId
-        ? [selectedBranchId]
-        : [];
-    if (!branchIds.length || (!isAdmin && !selectedBranchId)) {
+      : managerBranchIds.length
+        ? managerBranchIds
+        : selectedBranchId
+          ? [selectedBranchId]
+          : [];
+    if (!branchIds.length || (!isAdmin && !chartBranchIds.length)) {
       setLoading(false);
       return;
     }
@@ -451,14 +528,16 @@ export default function DashboardScreen({ session, profile, branches }) {
       } else {
         const [{ total: ownTotal, byBranch: ownByBranch }, rollup] =
           await Promise.all([
-            fetchTotalsByDate(today, [selectedBranchId]),
+            fetchTotalsByDate(today, chartBranchIds),
             supabase.rpc('get_home_rollup', { target_date: toISODate(today) }),
           ]);
 
         if (ownByBranch) {
           setHomeBranchTotal(ownByBranch[selectedBranchId] ?? null);
+          setHomeBranchTotals(ownByBranch);
         } else {
           setHomeBranchTotal(null);
+          setHomeBranchTotals({});
         }
 
         if (!rollup?.error) {
@@ -489,7 +568,7 @@ export default function DashboardScreen({ session, profile, branches }) {
       const [recentData, weekRangeData] = await Promise.all([
         supabase
           .from('sales_entries')
-          .select('entry_date, amount')
+          .select('entry_date, amount, branch_id')
           .in('branch_id', chartBranchIds)
           .gte('entry_date', toISODate(recentStart))
           .lte('entry_date', toISODate(recentEnd)),
@@ -502,28 +581,56 @@ export default function DashboardScreen({ session, profile, branches }) {
       ]);
 
       if (!recentData.error) {
-        const totalByDate = {};
-        const countByDate = {};
-        (recentData.data || []).forEach((row) => {
-          if (row.amount == null) return;
-          totalByDate[row.entry_date] =
-            (totalByDate[row.entry_date] || 0) + Number(row.amount || 0);
-          countByDate[row.entry_date] = (countByDate[row.entry_date] || 0) + 1;
-        });
-        const series = [];
-        for (let i = 9; i >= 0; i -= 1) {
-          const date = subDays(today, i);
-          const key = toISODate(date);
-          const total = totalByDate[key];
-          const hasAllBranches = !isAdmin
-            ? total != null
-            : (countByDate[key] || 0) === branches.length;
-          series.push({
-            label: format(date, 'M/d'),
-            value: hasAllBranches ? total : null,
+        if (isAdmin) {
+          const totalByDate = {};
+          const countByDate = {};
+          (recentData.data || []).forEach((row) => {
+            if (row.amount == null) return;
+            totalByDate[row.entry_date] =
+              (totalByDate[row.entry_date] || 0) + Number(row.amount || 0);
+            countByDate[row.entry_date] = (countByDate[row.entry_date] || 0) + 1;
           });
+          const series = [];
+          for (let i = 9; i >= 0; i -= 1) {
+            const date = subDays(today, i);
+            const key = toISODate(date);
+            const total = totalByDate[key];
+            const hasAllBranches =
+              (countByDate[key] || 0) === branches.length;
+            series.push({
+              label: format(date, 'M/d'),
+              value: hasAllBranches ? total : null,
+            });
+          }
+          setRecent14Days(series);
+          setRecentSeriesByBranch({});
+        } else {
+          const totalsByBranch = {};
+          (recentData.data || []).forEach((row) => {
+            if (row.amount == null) return;
+            if (!totalsByBranch[row.branch_id]) {
+              totalsByBranch[row.branch_id] = {};
+            }
+            totalsByBranch[row.branch_id][row.entry_date] =
+              (totalsByBranch[row.branch_id][row.entry_date] || 0) +
+              Number(row.amount || 0);
+          });
+          const branchSeries = {};
+          managerBranchIds.forEach((branchId) => {
+            const series = [];
+            for (let i = 9; i >= 0; i -= 1) {
+              const date = subDays(today, i);
+              const key = toISODate(date);
+              const total = totalsByBranch[branchId]?.[key];
+              series.push({
+                label: format(date, 'M/d'),
+                value: total ?? null,
+              });
+            }
+            branchSeries[branchId] = series;
+          });
+          setRecentSeriesByBranch(branchSeries);
         }
-        setRecent14Days(series);
       }
 
       if (!weekRangeData.error) {
@@ -540,20 +647,35 @@ export default function DashboardScreen({ session, profile, branches }) {
         const lastWeekRows = rows.filter((row) =>
           isWithinIsoRange(row.entry_date, lastWeekStartKey, lastWeekEndKey),
         );
-        const { lunchSeries, dinnerSeries } = buildWeekLunchDinnerSeries(
-          thisWeekRows,
-          weekEnd,
-          { requireAllCount: isAdmin ? branches.length : null },
-        );
-        setWeekdayTotals(lunchSeries);
-        setWeekdayTotalsDinner(dinnerSeries);
-        const lastWeekSeries = buildWeekLunchDinnerSeries(
-          lastWeekRows,
-          lastWeekEnd,
-          { requireAllCount: isAdmin ? branches.length : null },
-        );
-        setWeekdayTotalsLast(lastWeekSeries.lunchSeries);
-        setWeekdayTotalsDinnerLast(lastWeekSeries.dinnerSeries);
+        if (isAdmin) {
+          const { lunchSeries, dinnerSeries } = buildWeekLunchDinnerSeries(
+            thisWeekRows,
+            weekEnd,
+            { requireAllCount: branches.length },
+          );
+          setWeekdayTotals(lunchSeries);
+          setWeekdayTotalsDinner(dinnerSeries);
+          const lastWeekSeries = buildWeekLunchDinnerSeries(
+            lastWeekRows,
+            lastWeekEnd,
+            { requireAllCount: branches.length },
+          );
+          setWeekdayTotalsLast(lastWeekSeries.lunchSeries);
+          setWeekdayTotalsDinnerLast(lastWeekSeries.dinnerSeries);
+        } else {
+          const byBranch = {};
+          managerBranchIds.forEach((branchId) => {
+            const branchRows = thisWeekRows.filter(
+              (row) => row.branch_id === branchId,
+            );
+            const { lunchSeries, dinnerSeries } = buildWeekLunchDinnerSeries(
+              branchRows,
+              weekEnd,
+            );
+            byBranch[branchId] = { lunch: lunchSeries, dinner: dinnerSeries };
+          });
+          setWeekSeriesByBranch(byBranch);
+        }
       }
 
       if (isAdmin) {
@@ -578,6 +700,7 @@ export default function DashboardScreen({ session, profile, branches }) {
   }, [
     branches,
     isAdmin,
+    managerBranchIds,
     selectedBranchId,
     fetchTotalsByDate,
     fetchTotalsByRange,
@@ -842,24 +965,40 @@ export default function DashboardScreen({ session, profile, branches }) {
 
   const loadEntryForToday = useCallback(async () => {
     if (entryLoadingRef.current) return;
-    if (!selectedBranchId) return;
+    const entryBranchIds = isAdmin
+      ? selectedBranchId
+        ? [selectedBranchId]
+        : []
+      : managerBranchIds;
+    if (!entryBranchIds.length) return;
     const today = new Date();
     const { data, error } = await supabase
       .from('sales_entries')
-      .select('amount, mid_amount')
-      .eq('branch_id', selectedBranchId)
+      .select('branch_id, amount, mid_amount')
+      .in('branch_id', entryBranchIds)
       .eq('entry_date', toISODate(today));
     if (error) {
       console.warn(error.message);
       return;
     }
-    const total = data?.[0]?.amount ?? null;
-    const mid = data?.[0]?.mid_amount ?? null;
-    const nextTotal = total != null ? String(total) : '';
-    const nextMid = mid != null ? String(mid) : '';
-    setEntryTotal(nextTotal);
-    setEntryMid(nextMid);
-  }, [selectedBranchId]);
+    const totals = {};
+    const mids = {};
+    (data || []).forEach((row) => {
+      const total = row.amount ?? null;
+      const mid = row.mid_amount ?? null;
+      totals[row.branch_id] = total != null ? String(total) : '';
+      mids[row.branch_id] = mid != null ? String(mid) : '';
+    });
+    if (isAdmin) {
+      const total = totals[selectedBranchId] ?? '';
+      const mid = mids[selectedBranchId] ?? '';
+      setEntryTotal(total);
+      setEntryMid(mid);
+    } else {
+      setEntryTotalByBranch(totals);
+      setEntryMidByBranch(mids);
+    }
+  }, [isAdmin, managerBranchIds, selectedBranchId]);
 
   const loadMonthlyEntries = useCallback(async () => {
     if (entryLoadingRef.current) return;
@@ -1074,17 +1213,29 @@ export default function DashboardScreen({ session, profile, branches }) {
     }, 1500);
   }, []);
 
-  const handleEntryAutoSave = async () => {
+  const handleEntryAutoSave = async (branchId) => {
     if (entryAutoSaveRef.current) return;
-    if (!selectedBranchId) return;
-    const nextMid = entryMid ? Number(entryMid) : null;
-    const nextTotal = entryTotal ? Number(entryTotal) : null;
+    if (!branchId) return;
+    const nextMid = isAdmin
+      ? entryMid
+        ? Number(entryMid)
+        : null
+      : entryMidByBranch[branchId]
+        ? Number(entryMidByBranch[branchId])
+        : null;
+    const nextTotal = isAdmin
+      ? entryTotal
+        ? Number(entryTotal)
+        : null
+      : entryTotalByBranch[branchId]
+        ? Number(entryTotalByBranch[branchId])
+        : null;
     if (nextMid == null && nextTotal == null) return;
     if (nextMid != null && nextTotal != null && nextMid > nextTotal) return;
     entryAutoSaveRef.current = true;
     try {
       const payload = {
-        branch_id: selectedBranchId,
+        branch_id: branchId,
         entry_date: toISODate(new Date()),
         amount: nextTotal,
         mid_amount: nextMid,
@@ -2696,72 +2847,208 @@ export default function DashboardScreen({ session, profile, branches }) {
               ) : null}
             </View>
 
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>오늘 {branchName} 매출</Text>
-              <Text style={styles.cardValue}>
-                {formatAmount(homeBranchTotal)}
-              </Text>
-            </View>
+            {!isAdmin && managerBranches.length > 1 ? (
+              <View style={styles.cardRow}>
+                {managerBranches.map((branch) => (
+                  <View key={branch.id} style={[styles.card, styles.cardHalf]}>
+                    <Text style={styles.cardTitle}>
+                      오늘 {branchLabelMap[branch.name] || branch.name} 매출
+                    </Text>
+                    <Text style={styles.cardValue}>
+                      {formatAmount(homeBranchTotals[branch.id])}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            ) : (
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>오늘 {branchName} 매출</Text>
+                <Text style={styles.cardValue}>
+                  {formatAmount(homeBranchTotal)}
+                </Text>
+              </View>
+            )}
 
-            <LineChartSimple
-              title="최근 10일 일매출"
-              data={recent14Days}
-              valueFormatter={formatMillionsPlain}
-              showMinMax
-              labelFormatter={(label) => label.split('/')[1] || label}
-            showPointLabels
-              minOverride={managerMinOverrides?.recent14Min ?? null}
-              showMinLeft
-            />
-            <BarChartSimple
-              title="이번주 점심, 저녁 매출"
-              data={weekdayTotalsDinner}
-              compareData={weekdayTotals}
-              valueFormatter={formatMillionsPlain}
-              showMinMax
-              minOverride={managerMinOverrides?.weekMin ?? null}
-              primaryLabel="저녁"
-              compareLabel="점심"
-              showLegend
-              showMinLeft
-              compareFirst
-            />
+            {!isAdmin && managerGroup === 'hanwoo' ? (
+              <LineChartSimple
+                title="최근 10일 일매출"
+                data={
+                  recentSeriesByBranch[gwangyangBranch?.id] ||
+                  recentSeriesByBranch[managerBranchIds[1]] ||
+                  []
+                }
+                compareData={
+                  recentSeriesByBranch[suncheonBranch?.id] ||
+                  recentSeriesByBranch[managerBranchIds[0]] ||
+                  []
+                }
+                compareColor="#ef4444"
+                valueFormatter={formatMillionsPlain}
+                showMinMax
+                showCompareMinMax
+                primaryLabel="광양점"
+                compareLabel="순천점"
+                compareFirst
+                legend={[
+                  { label: '순천점', color: '#ef4444' },
+                  { label: '광양점', color: '#2255ff' },
+                ]}
+                labelFormatter={(label) => label.split('/')[1] || label}
+                showPointLabels
+                minOverride={
+                  gwangyangBranch?.id
+                    ? chartMinByBranch[gwangyangBranch.id]?.recentMin ?? null
+                    : managerBranchIds[1]
+                      ? chartMinByBranch[managerBranchIds[1]]?.recentMin ?? null
+                      : null
+                }
+                showMinLeft
+              />
+            ) : !isAdmin && managerGroup === 'mart-cafe' ? (
+              managerBranches.map((branch) => (
+                <LineChartSimple
+                  key={`recent-${branch.id}`}
+                  title={`최근 10일 일매출 (${branchLabelMap[branch.name] || branch.name})`}
+                  data={recentSeriesByBranch[branch.id] || []}
+                  valueFormatter={formatMillionsPlain}
+                  showMinMax
+                  labelFormatter={(label) => label.split('/')[1] || label}
+                  showPointLabels
+                  minOverride={chartMinByBranch[branch.id]?.recentMin ?? null}
+                  showMinLeft
+                />
+              ))
+            ) : (
+              <LineChartSimple
+                title="최근 10일 일매출"
+                data={!isAdmin ? recentSeriesByBranch[selectedBranchId] || [] : recent14Days}
+                valueFormatter={formatMillionsPlain}
+                showMinMax
+                labelFormatter={(label) => label.split('/')[1] || label}
+                showPointLabels
+                minOverride={!isAdmin ? managerMinOverrides?.recent14Min ?? null : totalMinOverrides.recentMin ?? null}
+                showMinLeft
+              />
+            )}
+
+            {!isAdmin ? (
+              managerBranches.map((branch) => (
+                <BarChartSimple
+                  key={`week-${branch.id}`}
+                  title={`이번주 ${branchLabelMap[branch.name] || branch.name} 점심, 저녁 매출`}
+                  data={weekSeriesByBranch[branch.id]?.dinner || []}
+                  compareData={weekSeriesByBranch[branch.id]?.lunch || []}
+                  valueFormatter={formatMillionsPlain}
+                  showMinMax
+                  minOverride={chartMinByBranch[branch.id]?.weekMin ?? null}
+                  primaryLabel="저녁"
+                  compareLabel="점심"
+                  showLegend
+                  showMinLeft
+                  compareFirst
+                />
+              ))
+            ) : (
+              <BarChartSimple
+                title="이번주 점심, 저녁 매출"
+                data={weekdayTotalsDinner}
+                compareData={weekdayTotals}
+                valueFormatter={formatMillionsPlain}
+                showMinMax
+                minOverride={managerMinOverrides?.weekMin ?? null}
+                primaryLabel="저녁"
+                compareLabel="점심"
+                showLegend
+                showMinLeft
+                compareFirst
+              />
+            )}
           </>
         ) : activeTab === 'entry' ? (
           <>
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>
-                {format(new Date(), 'yyyy-MM-dd')} | {branchName}
-              </Text>
-              {isAdmin ? (
-                <BranchPicker
-                  branches={branches}
-                  value={selectedBranchId}
-                  onChange={setSelectedBranchId}
-                  disabled={!isAdmin}
-                />
-              ) : null}
-
-              <EntryAmountField
-                label="중간 매출 (점심)"
-                value={entryMid}
-                onChangeText={(value) => setEntryMid(value.replace(/[^0-9]/g, ''))}
-                onBlur={handleEntryAutoSave}
-              />
-              <EntryAmountField
-                label="총 매출"
-                value={entryTotal}
-                onChangeText={(value) =>
-                  setEntryTotal(value.replace(/[^0-9]/g, ''))
-                }
-                onBlur={handleEntryAutoSave}
-              />
-              {entryAutoSaveNotice ? (
-                <Text style={styles.entryAutoSaveText}>
-                  {entryAutoSaveNotice}
+            {!isAdmin && managerBranches.length > 1 ? (
+              <>
+                <View style={styles.card}>
+                  <Text style={styles.cardTitle}>중간 매출 (점심)</Text>
+                  {managerBranches.map((branch) => (
+                    <TextInput
+                      key={`mid-${branch.id}`}
+                      style={styles.entryInput}
+                      keyboardType="numeric"
+                      placeholder={branch.name}
+                      value={entryMidByBranch[branch.id] || ''}
+                      onChangeText={(value) =>
+                        setEntryMidByBranch((prev) => ({
+                          ...prev,
+                          [branch.id]: value.replace(/[^0-9]/g, ''),
+                        }))
+                      }
+                      onBlur={() => handleEntryAutoSave(branch.id)}
+                    />
+                  ))}
+                </View>
+                <View style={styles.card}>
+                  <Text style={styles.cardTitle}>총 매출</Text>
+                  {managerBranches.map((branch) => (
+                    <TextInput
+                      key={`total-${branch.id}`}
+                      style={styles.entryInput}
+                      keyboardType="numeric"
+                      placeholder={branch.name}
+                      value={entryTotalByBranch[branch.id] || ''}
+                      onChangeText={(value) =>
+                        setEntryTotalByBranch((prev) => ({
+                          ...prev,
+                          [branch.id]: value.replace(/[^0-9]/g, ''),
+                        }))
+                      }
+                      onBlur={() => handleEntryAutoSave(branch.id)}
+                    />
+                  ))}
+                  {entryAutoSaveNotice ? (
+                    <Text style={styles.entryAutoSaveText}>
+                      {entryAutoSaveNotice}
+                    </Text>
+                  ) : null}
+                </View>
+              </>
+            ) : (
+              <View style={styles.card}>
+                <Text style={styles.cardTitle}>
+                  {format(new Date(), 'yyyy-MM-dd')} | {branchName}
                 </Text>
-              ) : null}
-            </View>
+                {isAdmin ? (
+                  <BranchPicker
+                    branches={branches}
+                    value={selectedBranchId}
+                    onChange={setSelectedBranchId}
+                    disabled={!isAdmin}
+                  />
+                ) : null}
+
+                <EntryAmountField
+                  label="중간 매출 (점심)"
+                  value={entryMid}
+                  onChangeText={(value) =>
+                    setEntryMid(value.replace(/[^0-9]/g, ''))
+                  }
+                  onBlur={() => handleEntryAutoSave(selectedBranchId)}
+                />
+                <EntryAmountField
+                  label="총 매출"
+                  value={entryTotal}
+                  onChangeText={(value) =>
+                    setEntryTotal(value.replace(/[^0-9]/g, ''))
+                  }
+                  onBlur={() => handleEntryAutoSave(selectedBranchId)}
+                />
+                {entryAutoSaveNotice ? (
+                  <Text style={styles.entryAutoSaveText}>
+                    {entryAutoSaveNotice}
+                  </Text>
+                ) : null}
+              </View>
+            )}
             <View style={styles.withdrawRow}>
               <Pressable
                 onPress={() => {
@@ -2816,6 +3103,29 @@ export default function DashboardScreen({ session, profile, branches }) {
           <>
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>내 매출 내역</Text>
+              {!isAdmin && managerBranches.length > 1 ? (
+                <View style={styles.weekToggleRowInline}>
+                  {managerBranches.map((branch) => (
+                    <Pressable
+                      key={branch.id}
+                      style={[
+                        styles.periodButton,
+                        selectedBranchId === branch.id && styles.periodButtonActive,
+                      ]}
+                      onPress={() => setSelectedBranchId(branch.id)}
+                    >
+                      <Text
+                        style={[
+                          styles.periodText,
+                          selectedBranchId === branch.id && styles.periodTextActive,
+                        ]}
+                      >
+                        {branchLabelMap[branch.name] || branch.name}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+              ) : null}
               <Pressable
                 style={styles.monthPickerButton}
                 onPress={() => setHistoryMonthPickerOpen(true)}
@@ -3097,6 +3407,15 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     padding: 16,
     marginBottom: 12,
+  },
+  cardRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginBottom: 12,
+  },
+  cardHalf: {
+    flex: 1,
+    marginBottom: 0,
   },
   cardTitle: {
     fontSize: 14,
