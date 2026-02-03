@@ -12,6 +12,71 @@ begin
   end if;
 end$$;
 
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'chart_min_settings'
+      and policyname = 'chart min settings readable by authenticated'
+  ) then
+    create policy "chart min settings readable by authenticated"
+      on chart_min_settings for select
+      to authenticated
+      using (true);
+  end if;
+end$$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'chart_min_settings'
+      and policyname = 'chart min settings insertable by admin'
+  ) then
+    create policy "chart min settings insertable by admin"
+      on chart_min_settings for insert
+      to authenticated
+      with check (is_admin());
+  end if;
+end$$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'chart_min_settings'
+      and policyname = 'chart min settings updatable by admin'
+  ) then
+    create policy "chart min settings updatable by admin"
+      on chart_min_settings for update
+      to authenticated
+      using (is_admin())
+      with check (is_admin());
+  end if;
+end$$;
+
+do $$
+begin
+  if not exists (
+    select 1
+    from pg_policies
+    where schemaname = 'public'
+      and tablename = 'chart_min_settings'
+      and policyname = 'chart min settings deletable by admin'
+  ) then
+    create policy "chart min settings deletable by admin"
+      on chart_min_settings for delete
+      to authenticated
+      using (is_admin());
+  end if;
+end$$;
+
 create or replace function get_home_rollup(target_date date)
 returns table (
   today_total bigint,
@@ -89,6 +154,53 @@ alter table sales_entries
 
 alter table sales_entries
   drop column if exists entry_slot;
+
+alter table sales_entries
+  alter column amount drop not null;
+
+create table if not exists chart_min_settings (
+  id uuid primary key default gen_random_uuid(),
+  scope text not null check (scope in ('branch', 'total')),
+  branch_id uuid references branches,
+  scope_key text,
+  recent_min bigint check (recent_min >= 0),
+  week_min bigint check (week_min >= 0),
+  updated_at timestamptz not null default now(),
+  constraint chart_min_settings_scope_branch
+    check (
+      (scope = 'branch' and branch_id is not null) or
+      (scope = 'total' and branch_id is null)
+    )
+);
+
+create unique index if not exists chart_min_settings_branch_unique
+  on chart_min_settings (branch_id)
+  where scope = 'branch';
+
+create unique index if not exists chart_min_settings_total_unique
+  on chart_min_settings (scope)
+  where scope = 'total';
+
+alter table chart_min_settings enable row level security;
+
+alter table chart_min_settings
+  add column if not exists scope_key text;
+
+update chart_min_settings
+set scope_key = case
+  when scope = 'total' then 'total'
+  else branch_id::text
+end
+where scope_key is null;
+
+alter table chart_min_settings
+  alter column scope_key set not null;
+
+create unique index if not exists chart_min_settings_scope_key_unique
+  on chart_min_settings (scope_key);
+
+alter table sales_entries
+  add column if not exists mid_amount bigint check (mid_amount >= 0);
 
 drop index if exists sales_entries_unique;
 

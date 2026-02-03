@@ -51,6 +51,8 @@ export function LineChartSimple({
   valueFormatter,
   showMinMax = false,
   showPointLabels = false,
+  minOverride = null,
+  showMinLeft = false,
 }) {
   const { width, onLayout } = useChartWidth();
   const combined = useMemo(() => {
@@ -68,13 +70,19 @@ export function LineChartSimple({
     max: displayMax,
     hasValues: hasDisplayValues,
   } = useMemo(() => getMinMax(data), [data]);
+  const adjustedDisplayMin = minOverride ?? displayMin;
+  const adjustedMin = minOverride ?? min;
+  const adjustedMax = max <= adjustedMin ? adjustedMin + 1 : max;
   const minLabel = valueFormatter
     ? valueFormatter(displayMin)
     : formatCurrency(displayMin);
+  const minLeftLabel = valueFormatter
+    ? valueFormatter(adjustedDisplayMin)
+    : formatCurrency(adjustedDisplayMin);
   const maxLabel = valueFormatter
     ? valueFormatter(displayMax)
     : formatCurrency(displayMax);
-  const range = max - min || 1;
+  const range = adjustedMax - adjustedMin || 1;
   const [hovered, setHovered] = useState(null);
   const tooltipFontSize = Platform.OS === 'web' ? 14 : 12;
 
@@ -100,14 +108,14 @@ export function LineChartSimple({
         chartPadding +
         (innerWidth * index) / Math.max(1, data.length - 1);
       const y =
-        chartPadding + innerHeight * (1 - (value - min) / range);
+        chartPadding + innerHeight * (1 - (value - adjustedMin) / range);
       current.push(`${x},${y}`);
     });
     if (current.length) {
       segments.push(current.join(' '));
     }
     return segments;
-  }, [data, height, min, range, width]);
+  }, [data, height, adjustedMin, range, width]);
 
   const comparePoints = useMemo(() => {
     if (!width || !compareData?.length) return [];
@@ -131,14 +139,14 @@ export function LineChartSimple({
         chartPadding +
         (innerWidth * index) / Math.max(1, compareData.length - 1);
       const y =
-        chartPadding + innerHeight * (1 - (value - min) / range);
+        chartPadding + innerHeight * (1 - (value - adjustedMin) / range);
       current.push(`${x},${y}`);
     });
     if (current.length) {
       segments.push(current.join(' '));
     }
     return segments;
-  }, [compareData, height, min, range, width]);
+  }, [compareData, height, adjustedMin, range, width]);
 
   const compareAltPoints = useMemo(() => {
     if (!width || !compareDataAlt?.length) return [];
@@ -162,14 +170,14 @@ export function LineChartSimple({
         chartPadding +
         (innerWidth * index) / Math.max(1, compareDataAlt.length - 1);
       const y =
-        chartPadding + innerHeight * (1 - (value - min) / range);
+        chartPadding + innerHeight * (1 - (value - adjustedMin) / range);
       current.push(`${x},${y}`);
     });
     if (current.length) {
       segments.push(current.join(' '));
     }
     return segments;
-  }, [compareDataAlt, height, min, range, width]);
+  }, [compareDataAlt, height, adjustedMin, range, width]);
 
   return (
     <View style={[styles.card, maxWidth ? { maxWidth } : null]} onLayout={onLayout}>
@@ -195,6 +203,17 @@ export function LineChartSimple({
               stroke="#e2e8f0"
               strokeWidth="1"
             />
+            {showMinLeft ? (
+              <SvgText
+                x={chartPadding - 6}
+                y={height - chartPadding + 4}
+                fontSize="11"
+                fill="#101828"
+                textAnchor="end"
+              >
+                {minLeftLabel}
+              </SvgText>
+            ) : null}
             {compareAltPoints.map((segment, index) => (
               <Polyline
                 key={`alt-${index}`}
@@ -254,24 +273,24 @@ export function LineChartSimple({
               chartPadding +
               (innerWidth * index) / Math.max(1, data.length - 1);
             const y =
-              chartPadding + innerHeight * (1 - (value - min) / range);
+              chartPadding + innerHeight * (1 - (value - adjustedMin) / range);
             return (
               <G key={item.label}>
-                {showPointLabels && Platform.OS === 'web' ? (
+                {showPointLabels ? (
                   <SvgText
                     x={x}
                     y={Math.max(chartPadding + 14, y - 18)}
-                    fontSize="13"
+                    fontSize="14"
                     fill="#344054"
                     textAnchor="middle"
                   >
                     {valueFormatter ? valueFormatter(value) : formatCurrency(value)}
                   </SvgText>
                 ) : null}
-                <SvgText
+                  <SvgText
                   x={x}
                   y={height - 8}
-                  fontSize="12"
+                    fontSize="13"
                   fill="#667085"
                   textAnchor="middle"
                 >
@@ -373,6 +392,13 @@ export function BarChartSimple({
   compareColor = '#cbd5f5',
   valueFormatter,
   showMinMax = false,
+  minOverride = null,
+  primaryLabel,
+  compareLabel,
+  showLegend = false,
+  compareFirst = false,
+  showMinLeft = false,
+  hideTitle = false,
 }) {
   const { width, onLayout } = useChartWidth();
   const combined = useMemo(
@@ -388,14 +414,33 @@ export function BarChartSimple({
     max: displayMax,
     hasValues: hasDisplayValues,
   } = useMemo(() => getMinMax(data), [data]);
+  const {
+    min: compareDisplayMin,
+    max: compareDisplayMax,
+    hasValues: hasCompareDisplayValues,
+  } = useMemo(() => getMinMax(compareData || []), [compareData]);
+  const adjustedDisplayMin = minOverride ?? displayMin;
+  const adjustedMin = minOverride ?? min;
+  const adjustedMax = max <= adjustedMin ? adjustedMin + 1 : max;
+  const labelMaxValue = Math.max(displayMax, displayMin);
   const minLabel = valueFormatter
     ? valueFormatter(displayMin)
     : formatCurrency(displayMin);
   const maxLabel = valueFormatter
-    ? valueFormatter(displayMax)
-    : formatCurrency(displayMax);
-  const range = max - min || 1;
-  const barLabelFontSize = Platform.OS === 'web' ? 14 : 12;
+    ? valueFormatter(labelMaxValue)
+    : formatCurrency(labelMaxValue);
+  const compareLabelMaxValue = Math.max(compareDisplayMax, compareDisplayMin);
+  const compareMinLabel = valueFormatter
+    ? valueFormatter(compareDisplayMin)
+    : formatCurrency(compareDisplayMin);
+  const compareMaxLabel = valueFormatter
+    ? valueFormatter(compareLabelMaxValue)
+    : formatCurrency(compareLabelMaxValue);
+  const minLeftLabel = valueFormatter
+    ? valueFormatter(adjustedDisplayMin)
+    : formatCurrency(adjustedDisplayMin);
+  const range = adjustedMax - adjustedMin || 1;
+  const barLabelFontSize = Platform.OS === 'web' ? 15 : 13;
   const maxValue = useMemo(() => {
     const values = data
       .map((item) => (item.value == null ? NaN : Number(item.value)))
@@ -405,13 +450,37 @@ export function BarChartSimple({
 
   return (
     <View style={[styles.card, maxWidth ? { maxWidth } : null]} onLayout={onLayout}>
-      <View style={styles.titleRow}>
-        <Text style={styles.title}>{title}</Text>
+      <View style={[styles.titleRow, hideTitle && styles.titleRowRight]}>
+        {!hideTitle ? <Text style={styles.title}>{title}</Text> : null}
         {showMinMax && hasDisplayValues ? (
-          <View style={styles.minMaxRow}>
-            <Text style={styles.minMaxText}>최저 {minLabel}</Text>
-            <Text style={styles.minMaxText}>최고 {maxLabel}</Text>
-          </View>
+          compareData && hasCompareDisplayValues ? (
+            <View style={styles.minMaxStack}>
+              {compareFirst ? (
+                <>
+                  <Text style={styles.minMaxText}>
+                    {compareLabel || '저녁'} 최저 {compareMinLabel} · 최고 {compareMaxLabel}
+                  </Text>
+                  <Text style={styles.minMaxText}>
+                    {primaryLabel || '점심'} 최저 {minLabel} · 최고 {maxLabel}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text style={styles.minMaxText}>
+                    {primaryLabel || '점심'} 최저 {minLabel} · 최고 {maxLabel}
+                  </Text>
+                  <Text style={styles.minMaxText}>
+                    {compareLabel || '저녁'} 최저 {compareMinLabel} · 최고 {compareMaxLabel}
+                  </Text>
+                </>
+              )}
+            </View>
+          ) : (
+            <View style={styles.minMaxRow}>
+              <Text style={styles.minMaxText}>최저 {minLabel}</Text>
+              <Text style={styles.minMaxText}>최고 {maxLabel}</Text>
+            </View>
+          )
         ) : null}
       </View>
       {!hasCombinedValues ? (
@@ -427,6 +496,17 @@ export function BarChartSimple({
               stroke="#e2e8f0"
               strokeWidth="1"
             />
+            {showMinLeft ? (
+              <SvgText
+                x={chartPadding - 6}
+                y={height - chartPadding + 4}
+                fontSize="11"
+                fill="#101828"
+                textAnchor="end"
+              >
+                {minLeftLabel}
+              </SvgText>
+            ) : null}
             {data.map((item, index) => {
               const innerWidth = width - chartPadding * 2;
               const innerHeight = height - chartPadding * 2;
@@ -440,19 +520,23 @@ export function BarChartSimple({
                 chartPadding +
                 index * slotWidth +
                 (slotWidth - totalBarWidth) / 2;
+              const xCompareCenter = xBase + barWidth / 2;
+              const xPrimaryCenter = compareData
+                ? xBase + barWidth + gap + barWidth / 2
+                : xBase + barWidth / 2;
               const rawValue = item.value;
               const value =
                 rawValue == null || rawValue === '' ? NaN : Number(rawValue);
               const hasValue = Number.isFinite(value);
               const barHeight = hasValue
-                ? innerHeight * ((value - min) / range)
+                ? Math.max(0, innerHeight * ((value - adjustedMin) / range))
                 : 0;
               const y = height - chartPadding - barHeight;
               const label = valueFormatter
                 ? valueFormatter(item.value || 0)
                 : formatCurrency(item.value || 0);
               const labelWidth = Math.max(28, label.length * 7);
-              const labelY = Math.max(chartPadding + 10, y - 8);
+              const labelY = Math.max(chartPadding + 10, y - 10);
               const compareRaw = compareData?.[index]?.value;
               const compareValue =
                 compareRaw == null || compareRaw === ''
@@ -460,44 +544,33 @@ export function BarChartSimple({
                   : Number(compareRaw);
               const hasCompareValue = Number.isFinite(compareValue);
               const compareHeight = compareData
-                ? innerHeight * ((hasCompareValue ? compareValue : min) - min) / range
+                ? Math.max(
+                    0,
+                    innerHeight *
+                      ((hasCompareValue ? compareValue : adjustedMin) - adjustedMin) /
+                      range,
+                  )
                 : 0;
               const compareY = height - chartPadding - compareHeight;
+              const compareLabel = valueFormatter
+                ? valueFormatter(compareValue || 0)
+                : formatCurrency(compareValue || 0);
+              const compareLabelWidth = Math.max(28, compareLabel.length * 7);
+              let compareLabelY = Math.max(chartPadding + 10, compareY - 18);
+              if (Math.abs(compareLabelY - labelY) < 12) {
+                compareLabelY = Math.max(chartPadding + 10, compareLabelY - 12);
+              }
               return (
                 <G key={`${item.label}-${index}`}>
-                  {hasValue ? (
-                    <>
-                      <Rect
-                        x={xBase + totalBarWidth / 2 - labelWidth / 2}
-                        y={labelY - 8}
-                        width={labelWidth}
-                        height={12}
-                        rx={3}
-                        fill="#ffffff"
-                        opacity={0.9}
-                      />
-                      <SvgText
-                        x={xBase + totalBarWidth / 2}
-                        y={labelY}
-                        fontSize={barLabelFontSize}
-                        fill="#344054"
-                        textAnchor="middle"
-                      >
-                        {label}
-                      </SvgText>
-                    </>
-                  ) : null}
-                  {compareData ? (
-                    hasCompareValue ? (
-                      <Rect
-                        x={xBase}
-                        y={compareY}
-                        width={barWidth}
-                        height={compareHeight}
-                        rx={4}
-                        fill={compareColor}
-                      />
-                    ) : null
+                  {compareData && hasCompareValue ? (
+                    <Rect
+                      x={xBase}
+                      y={compareY}
+                      width={barWidth}
+                      height={compareHeight}
+                      rx={4}
+                      fill={compareColor}
+                    />
                   ) : null}
                   {hasValue ? (
                     <Rect
@@ -508,6 +581,50 @@ export function BarChartSimple({
                       rx={4}
                       fill="#101828"
                     />
+                  ) : null}
+                  {compareData && hasCompareValue ? (
+                    <>
+                      <Rect
+                        x={xCompareCenter - compareLabelWidth / 2}
+                        y={compareLabelY - 8}
+                        width={compareLabelWidth}
+                        height={12}
+                        rx={3}
+                        fill="#ffffff"
+                        opacity={0.9}
+                      />
+                      <SvgText
+                        x={xCompareCenter}
+                        y={compareLabelY}
+                        fontSize={Math.max(10, barLabelFontSize - 1)}
+                        fill="#344054"
+                        textAnchor="middle"
+                      >
+                        {compareLabel}
+                      </SvgText>
+                    </>
+                  ) : null}
+                  {hasValue ? (
+                    <>
+                      <Rect
+                        x={xPrimaryCenter - labelWidth / 2}
+                        y={labelY - 8}
+                        width={labelWidth}
+                        height={12}
+                        rx={3}
+                        fill="#ffffff"
+                        opacity={0.9}
+                      />
+                      <SvgText
+                        x={xPrimaryCenter}
+                        y={labelY}
+                        fontSize={barLabelFontSize}
+                        fill="#344054"
+                        textAnchor="middle"
+                      >
+                        {label}
+                      </SvgText>
+                    </>
                   ) : null}
                   <SvgText
                     x={xBase + totalBarWidth / 2}
@@ -528,6 +645,33 @@ export function BarChartSimple({
         <Text style={styles.summary}>
           최고 {formatCurrency(maxValue)}원
         </Text>
+      ) : null}
+      {showLegend && compareData ? (
+        <View style={styles.legendRow}>
+          {compareFirst ? (
+            <>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: compareColor }]} />
+                <Text style={styles.legendText}>{compareLabel || '저녁'}</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#101828' }]} />
+                <Text style={styles.legendText}>{primaryLabel || '점심'}</Text>
+              </View>
+            </>
+          ) : (
+            <>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: '#101828' }]} />
+                <Text style={styles.legendText}>{primaryLabel || '점심'}</Text>
+              </View>
+              <View style={styles.legendItem}>
+                <View style={[styles.legendDot, { backgroundColor: compareColor }]} />
+                <Text style={styles.legendText}>{compareLabel || '저녁'}</Text>
+              </View>
+            </>
+          )}
+        </View>
       ) : null}
     </View>
   );
@@ -668,16 +812,24 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 8,
   },
+  titleRowRight: {
+    justifyContent: 'flex-end',
+  },
   title: {
-    fontSize: 14,
+    fontSize: 15,
     color: '#667085',
   },
   minMaxRow: {
     flexDirection: 'row',
     gap: 10,
   },
+  minMaxStack: {
+    alignItems: 'flex-end',
+    gap: 2,
+    alignSelf: 'flex-end',
+  },
   minMaxText: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#667085',
   },
   empty: {
@@ -685,7 +837,7 @@ const styles = StyleSheet.create({
   },
   summary: {
     marginTop: 6,
-    fontSize: 12,
+    fontSize: 13,
     color: '#667085',
   },
   legendRow: {
@@ -706,7 +858,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   legendText: {
-    fontSize: 12,
+    fontSize: 13,
     color: '#667085',
   },
   legendDot: {

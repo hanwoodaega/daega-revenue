@@ -20,13 +20,16 @@ branches_base as (
 dates as (
   select generate_series(current_date - interval '60 day', current_date, interval '1 day')::date as entry_date
 )
-insert into sales_entries (branch_id, entry_date, amount, created_by)
+insert into sales_entries (branch_id, entry_date, amount, mid_amount, created_by)
 select
   b.branch_id,
   d.entry_date,
   (
     b.base_amount + (random() * 800000)
   )::bigint as amount,
+  (
+    b.base_amount * 0.45 + (random() * 300000)
+  )::bigint as mid_amount,
   a.id as created_by
 from branches_base b
 cross join dates d

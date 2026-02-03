@@ -18,7 +18,6 @@ export default function App() {
   const [profile, setProfile] = useState(null);
   const [branches, setBranches] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
   const profileRequestRef = useRef(0);
 
   useEffect(() => {
@@ -48,7 +47,6 @@ export default function App() {
     }
 
     setLoading(true);
-    setError('');
     try {
       const [{ data: profileData, error: profileError }, { data: branchData }] =
         await Promise.all([
@@ -66,7 +64,7 @@ export default function App() {
       setBranches(branchData || []);
     } catch (err) {
       if (requestId !== profileRequestRef.current) return;
-      setError(err.message ?? '프로필 정보를 불러오지 못했습니다.');
+      console.warn(err.message ?? '프로필 정보를 불러오지 못했습니다.');
     } finally {
       if (requestId === profileRequestRef.current) {
         setLoading(false);
@@ -92,16 +90,6 @@ export default function App() {
         <View style={styles.center}>
           <ActivityIndicator size="large" color="#101828" />
           <Text style={styles.loadingText}>데이터 준비 중...</Text>
-        </View>
-      </SafeAreaProvider>
-    );
-  }
-
-  if (error) {
-    return (
-      <SafeAreaProvider>
-        <View style={styles.center}>
-          <Text style={styles.errorText}>{error}</Text>
         </View>
       </SafeAreaProvider>
     );

@@ -23,14 +23,44 @@ alter table profiles
   add column if not exists active boolean not null default true,
   add column if not exists must_change_password boolean not null default true;
 
+alter table sales_entries
+  add column if not exists mid_amount bigint check (mid_amount >= 0);
+
 create table if not exists sales_entries (
   id uuid primary key default gen_random_uuid(),
   branch_id uuid not null references branches,
   entry_date date not null,
-  amount bigint not null check (amount >= 0),
+  amount bigint check (amount >= 0),
+  mid_amount bigint check (mid_amount >= 0),
   created_at timestamptz not null default now(),
   created_by uuid references auth.users not null default auth.uid()
 );
+
+create table if not exists chart_min_settings (
+  id uuid primary key default gen_random_uuid(),
+  scope text not null check (scope in ('branch', 'total')),
+  branch_id uuid references branches,
+  scope_key text not null,
+  recent_min bigint check (recent_min >= 0),
+  week_min bigint check (week_min >= 0),
+  updated_at timestamptz not null default now(),
+  constraint chart_min_settings_scope_branch
+    check (
+      (scope = 'branch' and branch_id is not null) or
+      (scope = 'total' and branch_id is null)
+    )
+);
+
+create unique index if not exists chart_min_settings_branch_unique
+  on chart_min_settings (branch_id)
+  where scope = 'branch';
+
+create unique index if not exists chart_min_settings_total_unique
+  on chart_min_settings (scope)
+  where scope = 'total';
+
+create unique index if not exists chart_min_settings_scope_key_unique
+  on chart_min_settings (scope_key);
 
 create unique index if not exists sales_entries_unique
   on sales_entries (branch_id, entry_date);
@@ -38,6 +68,7 @@ create unique index if not exists sales_entries_unique
 alter table branches enable row level security;
 alter table profiles enable row level security;
 alter table sales_entries enable row level security;
+alter table chart_min_settings enable row level security;
 
 create policy "branches are readable by authenticated users"
   on branches for select
@@ -204,6 +235,27 @@ create policy "sales deletable by admin or branch manager"
         )
     )
   );
+
+create policy "chart min settings readable by authenticated"
+  on chart_min_settings for select
+  to authenticated
+  using (true);
+
+create policy "chart min settings insertable by admin"
+  on chart_min_settings for insert
+  to authenticated
+  with check (is_admin());
+
+create policy "chart min settings updatable by admin"
+  on chart_min_settings for update
+  to authenticated
+  using (is_admin())
+  with check (is_admin());
+
+create policy "chart min settings deletable by admin"
+  on chart_min_settings for delete
+  to authenticated
+  using (is_admin());
 
 create or replace function get_home_rollup(target_date date)
 returns table (
