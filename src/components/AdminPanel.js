@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { supabase } from '../lib/supabase';
 
@@ -9,12 +9,22 @@ export default function AdminPanel({ branches }) {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState('');
   const [tempPassword, setTempPassword] = useState('');
-  const branchLabelMap = {
-    대가정육마트: '마트',
-    '카페 일공구공': '카페',
-    '한우대가 광양점': '광양점',
-    '한우대가 순천점': '순천점',
-  };
+  const hanwooBranch =
+    branches?.find((branch) => branch.name === '한우대가 순천점') ||
+    branches?.find((branch) => branch.name === '한우대가 광양점') ||
+    null;
+  const martBranch =
+    branches?.find((branch) => branch.name === '대가정육마트') || null;
+  const branchOptions = [
+    hanwooBranch ? { id: hanwooBranch.id, label: '한우대가' } : null,
+    martBranch ? { id: martBranch.id, label: '대가정육마트' } : null,
+  ].filter(Boolean);
+
+  useEffect(() => {
+    if (!branchId && branchOptions.length) {
+      setBranchId(branchOptions[0].id);
+    }
+  }, [branchId, branchOptions]);
 
   const handleCreate = async () => {
     if (!email || !branchId) {
@@ -74,7 +84,7 @@ export default function AdminPanel({ branches }) {
         keyboardType="phone-pad"
       />
       <View style={styles.select}>
-        {branches?.map((branch) => (
+        {branchOptions.map((branch) => (
           <Pressable
             key={branch.id}
             onPress={() => setBranchId(branch.id)}
@@ -89,7 +99,7 @@ export default function AdminPanel({ branches }) {
                 branchId === branch.id && styles.branchTextActive,
               ]}
             >
-              {branchLabelMap[branch.name] || branch.name}
+              {branch.label}
             </Text>
           </Pressable>
         ))}

@@ -117,6 +117,7 @@ const EntryAmountField = memo(function EntryAmountField({
         style={styles.entryInput}
         keyboardType="numeric"
         placeholder={placeholder}
+        placeholderTextColor="#98a2b3"
         value={value}
         onChangeText={onChangeText}
         onBlur={onBlur}
@@ -133,7 +134,6 @@ export default function DashboardScreen({ session, profile, branches }) {
   const [now, setNow] = useState(new Date());
   const [loading, setLoading] = useState(false);
   const [todayTotal, setTodayTotal] = useState(null);
-  const [lastWeekTotal, setLastWeekTotal] = useState(null);
   const [branchTotals, setBranchTotals] = useState([]);
   const [entryTotal, setEntryTotal] = useState('');
   const [entryMid, setEntryMid] = useState('');
@@ -141,21 +141,22 @@ export default function DashboardScreen({ session, profile, branches }) {
   const [entryMidByBranch, setEntryMidByBranch] = useState({});
   const [entryAutoSaveNotice, setEntryAutoSaveNotice] = useState('');
   const [homeBranchTotals, setHomeBranchTotals] = useState({});
+  const [homeUseYesterdayTotal, setHomeUseYesterdayTotal] = useState(false);
+  const [homeUseYesterdayBranches, setHomeUseYesterdayBranches] = useState(false);
   const [recentSeriesByBranch, setRecentSeriesByBranch] = useState({});
   const [weekSeriesByBranch, setWeekSeriesByBranch] = useState({});
   const [monthCursor, setMonthCursor] = useState(startOfMonth(new Date()));
   const [monthlyEntries, setMonthlyEntries] = useState([]);
+  const [monthlyTotalsByBranch, setMonthlyTotalsByBranch] = useState({});
   const [historyEditingDate, setHistoryEditingDate] = useState(null);
   const [historyEditingMid, setHistoryEditingMid] = useState('');
   const [historyEditingTotal, setHistoryEditingTotal] = useState('');
   const [refreshKey, setRefreshKey] = useState(0);
   const [monthTotal, setMonthTotal] = useState(null);
-  const [lastYearMonthTotal, setLastYearMonthTotal] = useState(null);
+  const [lastYearDayTotal, setLastYearDayTotal] = useState(null);
   const [recent14Days, setRecent14Days] = useState([]);
   const [weekdayTotals, setWeekdayTotals] = useState([]);
   const [weekdayTotalsDinner, setWeekdayTotalsDinner] = useState([]);
-  const [weekdayTotalsLast, setWeekdayTotalsLast] = useState([]);
-  const [weekdayTotalsDinnerLast, setWeekdayTotalsDinnerLast] = useState([]);
   const [homeMissingBranches, setHomeMissingBranches] = useState([]);
   const [homeComparePercent, setHomeComparePercent] = useState(null);
   const [homeBranchTotal, setHomeBranchTotal] = useState(null);
@@ -293,6 +294,24 @@ export default function DashboardScreen({ session, profile, branches }) {
     return branch?.name ?? '-';
   }, [branches, selectedBranchId]);
 
+  const displayBranchName = useMemo(() => {
+    if (isAdmin) return branchName;
+    if (managerGroup === 'hanwoo') return '한우대가';
+    if (managerGroup === 'mart-cafe') return '대가정육마트';
+    return branchName;
+  }, [branchName, isAdmin, managerGroup]);
+
+  const hanwooWeekMinOverride = useMemo(() => {
+    if (managerGroup !== 'hanwoo') return null;
+    if (suncheonBranch?.id && chartMinByBranch[suncheonBranch.id]?.weekMin != null) {
+      return chartMinByBranch[suncheonBranch.id].weekMin;
+    }
+    if (gwangyangBranch?.id && chartMinByBranch[gwangyangBranch.id]?.weekMin != null) {
+      return chartMinByBranch[gwangyangBranch.id].weekMin;
+    }
+    return null;
+  }, [chartMinByBranch, gwangyangBranch?.id, managerGroup, suncheonBranch?.id]);
+
   useEffect(() => {
     if (!selectedBranchId && branches?.length) {
       const fallbackId = isAdmin
@@ -324,6 +343,7 @@ export default function DashboardScreen({ session, profile, branches }) {
   }, []);
 
   const formatAmount = (value) => (value == null ? '-' : `${formatCurrency(value)}원`);
+  const formatAmountPlain = (value) => (value == null ? '-' : formatCurrency(value));
   const formatMillions = (value) => {
     if (value == null) return '-';
     return `${(value / 1000000).toFixed(1)}M`;
@@ -335,6 +355,10 @@ export default function DashboardScreen({ session, profile, branches }) {
   const formatMillionsPlain = (value) => {
     if (value == null) return '-';
     return (value / 1000000).toFixed(1);
+  };
+  const formatMillionsTwoPlain = (value) => {
+    if (value == null) return '-';
+    return (value / 1000000).toFixed(2);
   };
   const formatTableValue = (value) =>
     Platform.OS === 'web' ? formatAmount(value) : formatMillions(value);
@@ -390,7 +414,9 @@ export default function DashboardScreen({ session, profile, branches }) {
 
 
   const fetchTotalsByDate = useCallback(async (date, branchIds) => {
-    if (!branchIds?.length) return { total: null, byBranch: {}, midByBranch: {} };
+    if (!branchIds?.length) {
+      return { total: null, byBranch: {}, midByBranch: {}, amountByBranch: {} };
+    }
     const { data, error } = await supabase
       .from('sales_entries')
       .select('branch_id, amount, mid_amount')
@@ -399,22 +425,37 @@ export default function DashboardScreen({ session, profile, branches }) {
 
     if (error) {
       console.warn(error.message);
-      return { total: null, byBranch: {}, midByBranch: {} };
+      return { total: null, byBranch: {}, midByBranch: {}, amountByBranch: {} };
     }
 
     const totals = {};
     const midTotals = {};
+    const amountTotals = {};
     let sum = 0;
     data?.forEach((row) => {
-      const value = Number(row.amount || 0);
+      const value =
+        row.amount != null
+          ? Number(row.amount || 0)
+          : row.mid_amount != null
+            ? Number(row.mid_amount || 0)
+            : 0;
       totals[row.branch_id] = (totals[row.branch_id] || 0) + value;
       sum += value;
       if (row.mid_amount != null) {
         const midValue = Number(row.mid_amount || 0);
         midTotals[row.branch_id] = (midTotals[row.branch_id] || 0) + midValue;
       }
+      if (row.amount != null) {
+        const amountValue = Number(row.amount || 0);
+        amountTotals[row.branch_id] = (amountTotals[row.branch_id] || 0) + amountValue;
+      }
     });
-    return { total: data?.length ? sum : null, byBranch: totals, midByBranch: midTotals };
+    return {
+      total: data?.length ? sum : null,
+      byBranch: totals,
+      midByBranch: midTotals,
+      amountByBranch: amountTotals,
+    };
   }, []);
 
   const fetchTotalsByRange = useCallback(async (start, end, branchIds) => {
@@ -454,50 +495,99 @@ export default function DashboardScreen({ session, profile, branches }) {
     setLoading(true);
     try {
       const today = new Date();
+      const yesterday = subDays(today, 1);
       const lastWeek = subDays(today, 7);
+      const lastWeekYesterday = subDays(yesterday, 7);
+      let todayAmountMissingAny = false;
+      let weekBaseDate = today;
+      if (!isAdmin && managerBranchIds.length) {
+        const { data: latestWeekData } = await supabase
+          .from('sales_entries')
+          .select('entry_date')
+          .in('branch_id', managerBranchIds)
+          .gte('entry_date', toISODate(subDays(today, 7)))
+          .lte('entry_date', toISODate(addDays(today, 7)))
+          .order('entry_date', { ascending: false })
+          .limit(1);
+        if (latestWeekData?.[0]?.entry_date) {
+          const latestDate = parseKstDate(latestWeekData[0].entry_date);
+          if (latestDate > today) {
+            weekBaseDate = latestDate;
+          }
+        }
+      }
       if (isAdmin) {
         const [
-          { total, byBranch, midByBranch },
-          { total: lastWeekSum, byBranch: lastWeekByBranch },
+          { total, byBranch, midByBranch, amountByBranch },
+          { total: lastWeekSum, byBranch: lastWeekByBranch, amountByBranch: lastWeekAmountByBranch },
+          {
+            total: yesterdayTotal,
+            byBranch: yesterdayByBranch,
+            midByBranch: yesterdayMidByBranch,
+            amountByBranch: yesterdayAmountByBranch,
+          },
+          {
+            total: lastWeekYesterdaySum,
+            byBranch: lastWeekYesterdayByBranch,
+            amountByBranch: lastWeekYesterdayAmountByBranch,
+          },
         ] = await Promise.all([
           fetchTotalsByDate(today, branchIds),
           fetchTotalsByDate(lastWeek, branchIds),
+          fetchTotalsByDate(yesterday, branchIds),
+          fetchTotalsByDate(lastWeekYesterday, branchIds),
         ]);
-
-        setTodayTotal(total);
-        setLastWeekTotal(lastWeekSum);
 
         const missing = branches.filter((branch) => byBranch[branch.id] == null);
         const missingNames = missing.map((branch) => branch.name);
-        setHomeMissingBranches(missingNames);
-        if (missingNames.length === branches.length) {
-          setTodayTotal(null);
-        }
+        const useYesterday = branches.every(
+          (branch) =>
+            byBranch[branch.id] == null && midByBranch[branch.id] == null,
+        );
+        const displayByBranch = useYesterday ? yesterdayByBranch : byBranch;
+        const displayMidByBranch = useYesterday ? yesterdayMidByBranch : midByBranch;
+        const displayAmountByBranch = useYesterday
+          ? yesterdayAmountByBranch
+          : amountByBranch;
+        const comparePrevByBranch = useYesterday
+          ? lastWeekYesterdayByBranch
+          : lastWeekByBranch;
+        const comparePrevAmountByBranch = useYesterday
+          ? lastWeekYesterdayAmountByBranch
+          : lastWeekAmountByBranch;
+        setTodayTotal(useYesterday ? yesterdayTotal : total);
+        setHomeUseYesterdayTotal(useYesterday);
+        setHomeUseYesterdayBranches(useYesterday);
+
+        setHomeMissingBranches(useYesterday ? [] : missingNames);
 
         if (selectedBranchId) {
-          setHomeBranchTotal(byBranch[selectedBranchId] ?? null);
+          setHomeBranchTotal(displayByBranch[selectedBranchId] ?? null);
         } else {
           setHomeBranchTotal(null);
         }
 
-        const lastWeekMissingAny = branches.some(
-          (branch) => lastWeekByBranch[branch.id] == null,
+        todayAmountMissingAny = branches.some(
+          (branch) => displayAmountByBranch[branch.id] == null,
         );
-        if (lastWeekMissingAny || !branches.length) {
+        const lastWeekMissingAny = branches.some(
+          (branch) => comparePrevAmountByBranch[branch.id] == null,
+        );
+        if (lastWeekMissingAny || todayAmountMissingAny || !branches.length) {
           setHomeComparePercent(null);
         } else {
           const reportedBranchIds = branches
-            .filter((branch) => byBranch[branch.id] != null)
+            .filter((branch) => displayByBranch[branch.id] != null)
             .map((branch) => branch.id);
           if (!reportedBranchIds.length) {
             setHomeComparePercent(null);
           } else {
             const compareTodaySum = reportedBranchIds.reduce(
-              (sum, id) => sum + Number(byBranch[id] || 0),
+              (sum, id) => sum + Number(displayByBranch[id] || 0),
               0,
             );
             const compareLastWeekSum = reportedBranchIds.reduce(
-              (sum, id) => sum + Number(lastWeekByBranch[id] || 0),
+              (sum, id) => sum + Number(comparePrevByBranch[id] || 0),
               0,
             );
             if (compareLastWeekSum === 0) {
@@ -511,9 +601,9 @@ export default function DashboardScreen({ session, profile, branches }) {
         }
 
         const list = branches.map((branch) => {
-          const current = byBranch[branch.id] ?? null;
-          const mid = midByBranch[branch.id] ?? null;
-          const prev = lastWeekByBranch[branch.id] ?? null;
+          const current = displayByBranch[branch.id] ?? null;
+          const mid = displayMidByBranch[branch.id] ?? null;
+          const prev = comparePrevByBranch[branch.id] ?? null;
           const delta = current != null && prev != null ? current - prev : null;
           return {
             id: branch.id,
@@ -526,42 +616,66 @@ export default function DashboardScreen({ session, profile, branches }) {
         });
         setBranchTotals(list);
       } else {
-        const [{ total: ownTotal, byBranch: ownByBranch }, rollup] =
-          await Promise.all([
-            fetchTotalsByDate(today, chartBranchIds),
-            supabase.rpc('get_home_rollup', { target_date: toISODate(today) }),
-          ]);
+        const [
+          { total: ownTotal, byBranch: ownByBranch, amountByBranch: ownAmountByBranch },
+          {
+            total: yesterdayOwnTotal,
+            byBranch: yesterdayOwnByBranch,
+            amountByBranch: yesterdayAmountByBranch,
+          },
+          rollup,
+          rollupYesterday,
+        ] = await Promise.all([
+          fetchTotalsByDate(today, chartBranchIds),
+          fetchTotalsByDate(yesterday, chartBranchIds),
+          supabase.rpc('get_home_rollup', { target_date: toISODate(today) }),
+          supabase.rpc('get_home_rollup', { target_date: toISODate(yesterday) }),
+        ]);
 
-        if (ownByBranch) {
-          setHomeBranchTotal(ownByBranch[selectedBranchId] ?? null);
-          setHomeBranchTotals(ownByBranch);
+        const ownAmountMissingAll = managerBranchIds.every(
+          (branchId) => ownAmountByBranch[branchId] == null,
+        );
+        const displayOwnByBranch = ownAmountMissingAll
+          ? yesterdayAmountByBranch
+          : ownAmountByBranch;
+        if (displayOwnByBranch) {
+          setHomeBranchTotal(displayOwnByBranch[selectedBranchId] ?? null);
+          setHomeBranchTotals(displayOwnByBranch);
         } else {
           setHomeBranchTotal(null);
           setHomeBranchTotals({});
         }
+        setHomeUseYesterdayBranches(ownAmountMissingAll);
 
         if (!rollup?.error) {
           const row = rollup?.data?.[0];
           const missingNames = row?.missing_branches || [];
-          setTodayTotal(
-            missingNames.length === branches.length
-              ? null
-              : row?.today_total ?? null,
-          );
-          setHomeMissingBranches(missingNames);
-          setHomeComparePercent(row?.compare_percent ?? null);
+          const noOneReported = missingNames.length === branches.length;
+          if ((noOneReported || ownAmountMissingAll) && !rollupYesterday?.error) {
+            const yesterdayRow = rollupYesterday?.data?.[0];
+            setTodayTotal(yesterdayRow?.today_total ?? null);
+            setHomeComparePercent(yesterdayRow?.compare_percent ?? null);
+            setHomeMissingBranches([]);
+            setHomeUseYesterdayTotal(true);
+          } else {
+            setTodayTotal(row?.today_total ?? null);
+            setHomeMissingBranches(missingNames);
+            setHomeComparePercent(row?.compare_percent ?? null);
+            setHomeUseYesterdayTotal(false);
+          }
         } else {
-          setTodayTotal(ownTotal);
+          setTodayTotal(ownAmountMissingAll ? yesterdayOwnTotal : ownTotal);
           setHomeMissingBranches([]);
           setHomeComparePercent(null);
+          setHomeUseYesterdayTotal(ownAmountMissingAll);
         }
         setBranchTotals([]);
       }
 
       const recentStart = subDays(today, 9);
       const recentEnd = today;
-      const weekStart = startOfWeek(today, { weekStartsOn: 1 });
-      const weekEnd = endOfWeek(today, { weekStartsOn: 1 });
+      const weekStart = startOfWeek(weekBaseDate, { weekStartsOn: 1 });
+      const weekEnd = endOfWeek(weekBaseDate, { weekStartsOn: 1 });
 
       const weekRangeStart = subDays(weekStart, 7);
       const weekRangeEnd = weekEnd;
@@ -574,7 +688,7 @@ export default function DashboardScreen({ session, profile, branches }) {
           .lte('entry_date', toISODate(recentEnd)),
         supabase
           .from('sales_entries')
-          .select('entry_date, amount, mid_amount')
+          .select('entry_date, amount, mid_amount, branch_id')
           .in('branch_id', chartBranchIds)
           .gte('entry_date', toISODate(weekRangeStart))
           .lte('entry_date', toISODate(weekRangeEnd)),
@@ -636,32 +750,25 @@ export default function DashboardScreen({ session, profile, branches }) {
       if (!weekRangeData.error) {
         const weekStartKey = toISODate(weekStart);
         const weekEndKey = toISODate(weekEnd);
-        const lastWeekStart = subDays(weekStart, 7);
-        const lastWeekEnd = subDays(weekEnd, 7);
-        const lastWeekStartKey = toISODate(lastWeekStart);
-        const lastWeekEndKey = toISODate(lastWeekEnd);
-        const rows = weekRangeData.data || [];
+        let rows = weekRangeData.data || [];
         const thisWeekRows = rows.filter((row) =>
           isWithinIsoRange(row.entry_date, weekStartKey, weekEndKey),
         );
-        const lastWeekRows = rows.filter((row) =>
-          isWithinIsoRange(row.entry_date, lastWeekStartKey, lastWeekEndKey),
-        );
         if (isAdmin) {
+          const adminReportBranchIds = branches
+            .filter((branch) => branch.name !== '카페 일공구공')
+            .map((branch) => branch.id);
+          const reportIdSet = new Set(adminReportBranchIds);
+          const thisWeekReportRows = thisWeekRows.filter((row) =>
+            reportIdSet.has(row.branch_id),
+          );
           const { lunchSeries, dinnerSeries } = buildWeekLunchDinnerSeries(
-            thisWeekRows,
+            thisWeekReportRows,
             weekEnd,
-            { requireAllCount: branches.length },
+            { requireAllCount: adminReportBranchIds.length },
           );
           setWeekdayTotals(lunchSeries);
           setWeekdayTotalsDinner(dinnerSeries);
-          const lastWeekSeries = buildWeekLunchDinnerSeries(
-            lastWeekRows,
-            lastWeekEnd,
-            { requireAllCount: branches.length },
-          );
-          setWeekdayTotalsLast(lastWeekSeries.lunchSeries);
-          setWeekdayTotalsDinnerLast(lastWeekSeries.dinnerSeries);
         } else {
           const byBranch = {};
           managerBranchIds.forEach((branchId) => {
@@ -679,19 +786,24 @@ export default function DashboardScreen({ session, profile, branches }) {
       }
 
       if (isAdmin) {
-        const monthStart = startOfMonth(today);
-        const monthEnd = today;
-        const lastYearSameDay = findSameWeekdayInLastYear(today) || subYears(today, 1);
-        const [monthSum, lastYearSum] = await Promise.all([
-          fetchTotalsByRange(monthStart, monthEnd, branchIds),
-          fetchTotalsByRange(
-            startOfMonth(lastYearSameDay),
-            lastYearSameDay,
-            branchIds,
-          ),
-        ]);
+        const monthEndDate =
+          homeUseYesterdayTotal || homeUseYesterdayBranches ? yesterday : today;
+        const monthStart = startOfMonth(monthEndDate);
+        const monthEnd = monthEndDate;
+        const lastYearSameDay =
+          findSameWeekdayInLastYear(monthEndDate) || subYears(monthEndDate, 1);
+        const lastYearDayTotals = await fetchTotalsByDate(
+          lastYearSameDay,
+          branchIds,
+        );
+        const lastYearMissingAny = branches.some(
+          (branch) => lastYearDayTotals.amountByBranch[branch.id] == null,
+        );
+        const monthSum = await fetchTotalsByRange(monthStart, monthEnd, branchIds);
         setMonthTotal(monthSum);
-        setLastYearMonthTotal(lastYearSum);
+        setLastYearDayTotal(
+          lastYearMissingAny || todayAmountMissingAny ? null : lastYearDayTotals.total,
+        );
       }
     } finally {
       homeLoadingRef.current = false;
@@ -716,7 +828,7 @@ export default function DashboardScreen({ session, profile, branches }) {
       const today = new Date();
       const { start, end } = getSelectedRange();
       let effectiveEnd = end;
-      if (periodType === 'week') {
+      if (periodType === 'week' || periodType === 'month') {
         const latestEntry = await supabase
           .from('sales_entries')
           .select('entry_date')
@@ -773,7 +885,7 @@ export default function DashboardScreen({ session, profile, branches }) {
 
       const [rangeTotal, prevTotal, lastMonthTotal, lastYearTotal] =
         await Promise.all([
-          fetchTotalsByRange(start, end, [branchAnalysisId]),
+          fetchTotalsByRange(start, effectiveEnd, [branchAnalysisId]),
           prevStart && prevEnd
             ? fetchTotalsByRange(prevStart, prevEnd, [branchAnalysisId])
             : Promise.resolve(null),
@@ -986,7 +1098,9 @@ export default function DashboardScreen({ session, profile, branches }) {
     (data || []).forEach((row) => {
       const total = row.amount ?? null;
       const mid = row.mid_amount ?? null;
-      totals[row.branch_id] = total != null ? String(total) : '';
+      const totalValue =
+        total == null || (total === 0 && mid != null) ? '' : String(total);
+      totals[row.branch_id] = totalValue;
       mids[row.branch_id] = mid != null ? String(mid) : '';
     });
     if (isAdmin) {
@@ -1020,8 +1134,29 @@ export default function DashboardScreen({ session, profile, branches }) {
       return;
     }
     setMonthlyEntries(data || []);
+    if (!isAdmin && managerBranchIds.length) {
+      const { data: totalsData, error: totalsError } = await supabase
+        .from('sales_entries')
+        .select('branch_id, amount')
+        .in('branch_id', managerBranchIds)
+        .gte('entry_date', toISODate(monthStart))
+        .lte('entry_date', toISODate(monthEnd));
+      if (totalsError) {
+        console.warn(totalsError.message);
+        setMonthlyTotalsByBranch({});
+      } else {
+        const totals = {};
+        (totalsData || []).forEach((row) => {
+          if (row.amount == null) return;
+          totals[row.branch_id] = (totals[row.branch_id] || 0) + Number(row.amount || 0);
+        });
+        setMonthlyTotalsByBranch(totals);
+      }
+    } else {
+      setMonthlyTotalsByBranch({});
+    }
     entryLoadingRef.current = false;
-  }, [monthCursor, selectedBranchId]);
+  }, [isAdmin, managerBranchIds, monthCursor, selectedBranchId]);
 
   const loadChartMinSettings = useCallback(async () => {
     if (!branches.length) return;
@@ -1072,6 +1207,15 @@ export default function DashboardScreen({ session, profile, branches }) {
             : String(branchSettings.weekMin),
       };
     });
+    const suncheon = branches.find((branch) => branch.name === '한우대가 순천점');
+    const gwangyang = branches.find((branch) => branch.name === '한우대가 광양점');
+    if (suncheon && gwangyang) {
+      const baseDraft =
+        nextDrafts[suncheon.id] ||
+        nextDrafts[gwangyang.id] || { recentMin: '', weekMin: '' };
+      nextDrafts[suncheon.id] = { ...baseDraft };
+      nextDrafts[gwangyang.id] = { ...baseDraft };
+    }
     setChartMinDrafts(nextDrafts);
     setChartMinTotalDraft({
       recentMin:
@@ -1083,7 +1227,14 @@ export default function DashboardScreen({ session, profile, branches }) {
   useEffect(() => {
     if (activeTab !== 'home') return;
     loadHomeData();
-  }, [activeTab, refreshKey, selectedBranchId, isAdmin, branches.length]);
+  }, [
+    activeTab,
+    refreshKey,
+    selectedBranchId,
+    isAdmin,
+    branches.length,
+    managerBranchIds.length,
+  ]);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -1099,7 +1250,7 @@ export default function DashboardScreen({ session, profile, branches }) {
       const monthEnd = endOfMonth(salesMonthCursor);
       const { data, error } = await supabase
         .from('sales_entries')
-        .select('entry_date, amount, branch_id')
+        .select('entry_date, amount, mid_amount, branch_id')
         .in(
           'branch_id',
           branches.map((b) => b.id),
@@ -1113,12 +1264,18 @@ export default function DashboardScreen({ session, profile, branches }) {
       }
 
       const totalsByDate = {};
+      const midsByDate = {};
       const branchTotals = {};
       (data || []).forEach((row) => {
         const key = row.entry_date;
         totalsByDate[key] = totalsByDate[key] || {};
+        midsByDate[key] = midsByDate[key] || {};
         totalsByDate[key][row.branch_id] =
           (totalsByDate[key][row.branch_id] || 0) + Number(row.amount || 0);
+        if (row.mid_amount != null) {
+          midsByDate[key][row.branch_id] =
+            (midsByDate[key][row.branch_id] || 0) + Number(row.mid_amount || 0);
+        }
         branchTotals[row.branch_id] =
           (branchTotals[row.branch_id] || 0) + Number(row.amount || 0);
       });
@@ -1126,15 +1283,21 @@ export default function DashboardScreen({ session, profile, branches }) {
       const days = eachDayOfInterval({ start: monthStart, end: monthEnd });
       const rows = days.map((date) => {
         const key = toISODate(date);
-        const branchValues = branches.map((branch) => ({
-          id: branch.id,
-          value: totalsByDate[key]?.[branch.id] ?? null,
-        }));
-        const total = branchValues.reduce(
-          (sum, item) => sum + (item.value || 0),
+        const amountByBranch = {};
+        const midByBranch = {};
+        branches.forEach((branch) => {
+          amountByBranch[branch.id] = totalsByDate[key]?.[branch.id] ?? null;
+          midByBranch[branch.id] = midsByDate[key]?.[branch.id] ?? null;
+        });
+        const totalAmount = Object.values(amountByBranch).reduce(
+          (sum, value) => sum + (value || 0),
           0,
         );
-        return { date, key, branchValues, total };
+        const totalMid = Object.values(midByBranch).reduce(
+          (sum, value) => sum + (value || 0),
+          0,
+        );
+        return { date, key, amountByBranch, midByBranch, totalAmount, totalMid };
       });
 
       const today = new Date();
@@ -1465,8 +1628,10 @@ export default function DashboardScreen({ session, profile, branches }) {
                 isMobileLayout && styles.kpiCardMobile,
               ]}
             >
-              <Text style={styles.kpiTitle}>오늘 총매출</Text>
-              <Text style={styles.kpiValue}>{formatAmount(todayTotal)}</Text>
+              <Text style={styles.kpiTitle}>
+                {homeUseYesterdayTotal ? '어제' : '오늘'} 총매출
+              </Text>
+              <Text style={styles.kpiValue}>{formatAmountPlain(todayTotal)}</Text>
             </View>
             <View
               style={[
@@ -1486,7 +1651,7 @@ export default function DashboardScreen({ session, profile, branches }) {
               ]}
             >
               <Text style={styles.kpiTitle}>이번달 누적</Text>
-              <Text style={styles.kpiValue}>{formatAmount(monthTotal)}</Text>
+              <Text style={styles.kpiValue}>{formatAmountPlain(monthTotal)}</Text>
             </View>
             <View
               style={[
@@ -1496,12 +1661,12 @@ export default function DashboardScreen({ session, profile, branches }) {
             >
               <Text style={styles.kpiTitle}>전년 대비</Text>
               <Text style={styles.kpiValue}>
-                {lastYearMonthTotal == null ||
-                monthTotal == null ||
-                lastYearMonthTotal === 0
+                {lastYearDayTotal == null ||
+                todayTotal == null ||
+                lastYearDayTotal === 0
                   ? '-'
                   : formatSignedPercent(
-                      ((monthTotal - lastYearMonthTotal) / lastYearMonthTotal) * 100,
+                      ((todayTotal - lastYearDayTotal) / lastYearDayTotal) * 100,
                     )}
               </Text>
             </View>
@@ -1509,7 +1674,9 @@ export default function DashboardScreen({ session, profile, branches }) {
 
           <View style={styles.webCard}>
             <View style={styles.sectionHeaderRow}>
-              <Text style={styles.sectionTitle}>지점별 비교</Text>
+              <Text style={styles.sectionTitle}>
+                지점별 비교{homeUseYesterdayTotal ? ' (어제)' : ''}
+              </Text>
               <Text style={styles.sectionNote}>전주 같은 요일 대비</Text>
             </View>
             {branchTotals.map((branch) => (
@@ -1652,7 +1819,7 @@ export default function DashboardScreen({ session, profile, branches }) {
             >
               <Text style={styles.kpiTitle}>총매출</Text>
               <Text style={styles.kpiValue}>
-                {formatAmount(periodSummary.total)}
+                {formatAmountPlain(periodSummary.total)}
               </Text>
             </View>
             <View
@@ -1663,7 +1830,7 @@ export default function DashboardScreen({ session, profile, branches }) {
             >
               <Text style={styles.kpiTitle}>전주 대비</Text>
               <Text style={styles.kpiValue}>
-                {formatAmount(periodSummary.prev)}
+                {formatAmountPlain(periodSummary.prev)}
               </Text>
               <Text style={styles.cardSub}>
               {calcPercent(periodSummary.total, periodSummary.prev) == null
@@ -1681,7 +1848,7 @@ export default function DashboardScreen({ session, profile, branches }) {
             >
               <Text style={styles.kpiTitle}>전월 대비</Text>
               <Text style={styles.kpiValue}>
-                {formatAmount(periodSummary.lastMonth)}
+                {formatAmountPlain(periodSummary.lastMonth)}
               </Text>
               <Text style={styles.cardSub}>
               {calcPercent(periodSummary.total, periodSummary.lastMonth) ==
@@ -1700,7 +1867,7 @@ export default function DashboardScreen({ session, profile, branches }) {
             >
               <Text style={styles.kpiTitle}>전년 대비</Text>
               <Text style={styles.kpiValue}>
-                {formatAmount(periodSummary.lastYear)}
+                {formatAmountPlain(periodSummary.lastYear)}
               </Text>
               <Text style={styles.cardSub}>
               {calcPercent(periodSummary.total, periodSummary.lastYear) ==
@@ -1797,17 +1964,14 @@ export default function DashboardScreen({ session, profile, branches }) {
     }
 
     if (adminMenu === 'branch-sales') {
-      const isTotalOnly = isMobileLayout && salesBranchFilter === 'all';
-      const tableBranches =
-        isMobileLayout && salesBranchFilter !== 'all'
-          ? orderedBranches.filter((b) => b.id === salesBranchFilter)
-          : isTotalOnly
-            ? []
-            : orderedBranches;
-      const cellValueFormatter = isMobileLayout ? formatAmount : formatTableValue;
+      const isAllBranches = salesBranchFilter === 'all';
+      const selectedBranch = orderedBranches.find(
+        (branch) => branch.id === salesBranchFilter,
+      );
+      const cellValueFormatter =
+        Platform.OS === 'web' ? formatMillionsTwo : formatAmount;
       const mobileCellStyle = isMobileLayout ? styles.tableCellMobile : null;
       const mobileDateStyle = isMobileLayout ? styles.tableDateCellMobile : null;
-      const mobileTotalStyle = isMobileLayout ? styles.tableTotalCellMobile : null;
       const monthYears = [0, 1, 2].map((offset) => new Date().getFullYear() - offset);
       return (
         <>
@@ -1933,7 +2097,7 @@ export default function DashboardScreen({ session, profile, branches }) {
           <View style={styles.webCard}>
             <Text style={styles.sectionTitle}>지점별 매출</Text>
             <ScrollView horizontal>
-              <View>
+              <View style={styles.branchSalesTable}>
                 <View style={styles.tableHeaderRow}>
                   <View
                     style={[
@@ -1944,32 +2108,26 @@ export default function DashboardScreen({ session, profile, branches }) {
                   >
                     <Text style={styles.tableHeaderText}>날짜</Text>
                   </View>
-                  {tableBranches.map((branch) => (
-                    <View
-                      key={branch.id}
-                      style={[styles.tableCell, mobileCellStyle]}
-                    >
-                      <Text style={styles.tableHeaderText}>
-                        {branch.name}
-                      </Text>
-                    </View>
-                  ))}
-                  {isTotalOnly ? (
-                    <View
-                      style={[
-                        styles.tableCell,
-                        styles.tableTotalCell,
-                        mobileTotalStyle,
-                      ]}
-                    >
-                        <Text style={styles.tableHeaderText}>합계</Text>
-                      </View>
-                    ) : null}
+                  <View style={[styles.tableCell, mobileCellStyle, styles.branchSalesValueCell]}>
+                    <Text style={styles.tableHeaderText}>점심</Text>
+                  </View>
+                  <View style={[styles.tableCell, mobileCellStyle, styles.branchSalesValueCell]}>
+                    <Text style={styles.tableHeaderText}>총매출</Text>
+                  </View>
                 </View>
                 {salesTableRows.map((row) => {
                   const isToday =
                     format(row.date, 'yyyy-MM-dd') ===
                     format(new Date(), 'yyyy-MM-dd');
+                  const targetBranchId = isAllBranches
+                    ? null
+                    : selectedBranch?.id;
+                  const midValue = targetBranchId
+                    ? row.midByBranch[targetBranchId]
+                    : row.totalMid || null;
+                  const totalValue = targetBranchId
+                    ? row.amountByBranch[targetBranchId]
+                    : row.totalAmount || null;
                   return (
                     <View
                       key={row.key}
@@ -1989,45 +2147,44 @@ export default function DashboardScreen({ session, profile, branches }) {
                           {format(row.date, 'MM/dd')}
                         </Text>
                       </View>
-                      {row.branchValues
-                        .filter((value) =>
-                          tableBranches.some((b) => b.id === value.id),
-                        )
-                        .map((value) => (
-                        <View
-                          key={value.id}
+                      <View
+                        style={[
+                          styles.tableCell,
+                          mobileCellStyle,
+                          styles.branchSalesValueCell,
+                          midValue == null && styles.tableEmptyCell,
+                        ]}
+                      >
+                        <Text
                           style={[
-                            styles.tableCell,
-                            mobileCellStyle,
-                            value.value == null && styles.tableEmptyCell,
+                            styles.tableCellText,
+                            midValue == null && styles.tableEmptyCellText,
                           ]}
+                          numberOfLines={1}
                         >
-                          <Text
-                            style={[
-                              styles.tableCellText,
-                              value.value == null && styles.tableEmptyCellText,
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {value.value == null
-                              ? '—'
-                              : cellValueFormatter(value.value)}
-                          </Text>
-                        </View>
-                      ))}
-                      {isTotalOnly ? (
-                        <View
+                          {midValue == null ? '—' : cellValueFormatter(midValue)}
+                        </Text>
+                      </View>
+                      <View
+                        style={[
+                          styles.tableCell,
+                          mobileCellStyle,
+                          styles.branchSalesValueCell,
+                          totalValue == null && styles.tableEmptyCell,
+                        ]}
+                      >
+                        <Text
                           style={[
-                            styles.tableCell,
-                            styles.tableTotalCell,
-                            mobileTotalStyle,
+                            styles.tableCellText,
+                            totalValue == null && styles.tableEmptyCellText,
                           ]}
+                          numberOfLines={1}
                         >
-                          <Text style={styles.tableCellText} numberOfLines={1}>
-                            {row.total ? cellValueFormatter(row.total) : '—'}
-                          </Text>
-                        </View>
-                      ) : null}
+                          {totalValue == null
+                            ? '—'
+                            : cellValueFormatter(totalValue)}
+                        </Text>
+                      </View>
                     </View>
                   );
                 })}
@@ -2108,48 +2265,119 @@ export default function DashboardScreen({ session, profile, branches }) {
             <Text style={[styles.settingsHint, styles.settingsHintSpacing]}>
               지점별 최소액
             </Text>
-            {branches.map((branch) => {
-              const draft = chartMinDrafts[branch.id] || {};
-              return (
-                <View key={branch.id} style={styles.settingsRow}>
-                  <Text style={styles.settingsBranch}>{branch.name}</Text>
-                  <View style={styles.settingsField}>
-                    <Text style={styles.settingsLabel}>하루매출 최소액</Text>
-                    <TextInput
-                      style={styles.settingsInput}
-                      keyboardType="numeric"
-                      value={draft.recentMin || ''}
-                      onChangeText={(value) =>
-                        setChartMinDrafts((prev) => ({
-                          ...prev,
-                          [branch.id]: {
-                            ...prev[branch.id],
-                            recentMin: value.replace(/[^0-9]/g, ''),
-                          },
-                        }))
-                      }
-                    />
-                  </View>
-                  <View style={styles.settingsField}>
-                    <Text style={styles.settingsLabel}>점심 최소액</Text>
-                    <TextInput
-                      style={styles.settingsInput}
-                      keyboardType="numeric"
-                      value={draft.weekMin || ''}
-                      onChangeText={(value) =>
-                        setChartMinDrafts((prev) => ({
-                          ...prev,
-                          [branch.id]: {
-                            ...prev[branch.id],
-                            weekMin: value.replace(/[^0-9]/g, ''),
-                          },
-                        }))
-                      }
-                    />
-                  </View>
-                </View>
+            {(() => {
+              const suncheon = branches.find(
+                (branch) => branch.name === '한우대가 순천점',
               );
-            })}
+              const gwangyang = branches.find(
+                (branch) => branch.name === '한우대가 광양점',
+              );
+              const otherBranches = branches.filter(
+                (branch) =>
+                  !['한우대가 순천점', '한우대가 광양점'].includes(branch.name),
+              );
+              const hanwooDraft =
+                (suncheon && chartMinDrafts[suncheon.id]) ||
+                (gwangyang && chartMinDrafts[gwangyang.id]) ||
+                {};
+              return (
+                <>
+                  {suncheon && gwangyang ? (
+                    <View style={styles.settingsRow}>
+                      <Text style={styles.settingsBranch}>한우대가</Text>
+                      <View style={styles.settingsField}>
+                        <Text style={styles.settingsLabel}>하루매출 최소액</Text>
+                        <TextInput
+                          style={styles.settingsInput}
+                          keyboardType="numeric"
+                          value={hanwooDraft.recentMin || ''}
+                          onChangeText={(value) => {
+                            const nextValue = value.replace(/[^0-9]/g, '');
+                            setChartMinDrafts((prev) => ({
+                              ...prev,
+                              [suncheon.id]: {
+                                ...prev[suncheon.id],
+                                recentMin: nextValue,
+                              },
+                              [gwangyang.id]: {
+                                ...prev[gwangyang.id],
+                                recentMin: nextValue,
+                              },
+                            }));
+                          }}
+                        />
+                      </View>
+                      <View style={styles.settingsField}>
+                        <Text style={styles.settingsLabel}>점심 최소액</Text>
+                        <TextInput
+                          style={styles.settingsInput}
+                          keyboardType="numeric"
+                          value={hanwooDraft.weekMin || ''}
+                          onChangeText={(value) => {
+                            const nextValue = value.replace(/[^0-9]/g, '');
+                            setChartMinDrafts((prev) => ({
+                              ...prev,
+                              [suncheon.id]: {
+                                ...prev[suncheon.id],
+                                weekMin: nextValue,
+                              },
+                              [gwangyang.id]: {
+                                ...prev[gwangyang.id],
+                                weekMin: nextValue,
+                              },
+                            }));
+                          }}
+                        />
+                      </View>
+                    </View>
+                  ) : null}
+                  {otherBranches.map((branch) => {
+                    const draft = chartMinDrafts[branch.id] || {};
+                    return (
+                      <View key={branch.id} style={styles.settingsRow}>
+                        <Text style={styles.settingsBranch}>{branch.name}</Text>
+                        <View style={styles.settingsField}>
+                          <Text style={styles.settingsLabel}>
+                            하루매출 최소액
+                          </Text>
+                          <TextInput
+                            style={styles.settingsInput}
+                            keyboardType="numeric"
+                            value={draft.recentMin || ''}
+                            onChangeText={(value) =>
+                              setChartMinDrafts((prev) => ({
+                                ...prev,
+                                [branch.id]: {
+                                  ...prev[branch.id],
+                                  recentMin: value.replace(/[^0-9]/g, ''),
+                                },
+                              }))
+                            }
+                          />
+                        </View>
+                        <View style={styles.settingsField}>
+                          <Text style={styles.settingsLabel}>점심 최소액</Text>
+                          <TextInput
+                            style={styles.settingsInput}
+                            keyboardType="numeric"
+                            value={draft.weekMin || ''}
+                            onChangeText={(value) =>
+                              setChartMinDrafts((prev) => ({
+                                ...prev,
+                                [branch.id]: {
+                                  ...prev[branch.id],
+                                  weekMin: value.replace(/[^0-9]/g, ''),
+                                },
+                              }))
+                            }
+                          />
+                        </View>
+                      </View>
+                    );
+                  })}
+                </>
+              );
+            })()}
             {chartMinError ? (
               <Text style={styles.settingsError}>{chartMinError}</Text>
             ) : null}
@@ -2276,8 +2504,12 @@ export default function DashboardScreen({ session, profile, branches }) {
               <>
                 <View style={styles.kpiRow}>
                   <View style={styles.kpiCard}>
-                    <Text style={styles.kpiTitle}>오늘 총매출</Text>
-                    <Text style={styles.kpiValue}>{formatAmount(todayTotal)}</Text>
+                    <Text style={styles.kpiTitle}>
+                      {homeUseYesterdayTotal ? '어제' : '오늘'} 총매출
+                    </Text>
+                    <Text style={styles.kpiValue}>
+                      {formatAmountPlain(todayTotal)}
+                    </Text>
                   </View>
                   <View style={styles.kpiCard}>
                     <Text style={styles.kpiTitle}>전주 대비</Text>
@@ -2287,18 +2519,19 @@ export default function DashboardScreen({ session, profile, branches }) {
                   </View>
                   <View style={styles.kpiCard}>
                     <Text style={styles.kpiTitle}>이번달 누적</Text>
-                    <Text style={styles.kpiValue}>{formatAmount(monthTotal)}</Text>
+                    <Text style={styles.kpiValue}>
+                      {formatAmountPlain(monthTotal)}
+                    </Text>
                   </View>
                   <View style={styles.kpiCard}>
                     <Text style={styles.kpiTitle}>전년 대비</Text>
                     <Text style={styles.kpiValue}>
-                      {lastYearMonthTotal == null ||
-                      monthTotal == null ||
-                      lastYearMonthTotal === 0
+                      {lastYearDayTotal == null ||
+                      todayTotal == null ||
+                      lastYearDayTotal === 0
                         ? '-'
                         : formatSignedPercent(
-                            ((monthTotal - lastYearMonthTotal) /
-                              lastYearMonthTotal) *
+                            ((todayTotal - lastYearDayTotal) / lastYearDayTotal) *
                               100,
                           )}
                     </Text>
@@ -2406,13 +2639,13 @@ export default function DashboardScreen({ session, profile, branches }) {
                   <View style={styles.kpiCard}>
                     <Text style={styles.kpiTitle}>총매출</Text>
                     <Text style={styles.kpiValue}>
-                      {formatAmount(periodSummary.total)}
+                      {formatAmountPlain(periodSummary.total)}
                     </Text>
                   </View>
                   <View style={styles.kpiCard}>
                     <Text style={styles.kpiTitle}>전주 대비</Text>
                     <Text style={styles.kpiValue}>
-                      {formatAmount(periodSummary.prev)}
+                      {formatAmountPlain(periodSummary.prev)}
                     </Text>
                     <Text style={styles.cardSub}>
                       {calcPercent(periodSummary.total, periodSummary.prev) ==
@@ -2426,7 +2659,7 @@ export default function DashboardScreen({ session, profile, branches }) {
                   <View style={styles.kpiCard}>
                     <Text style={styles.kpiTitle}>전월 대비</Text>
                     <Text style={styles.kpiValue}>
-                      {formatAmount(periodSummary.lastMonth)}
+                      {formatAmountPlain(periodSummary.lastMonth)}
                     </Text>
                     <Text style={styles.cardSub}>
                       {calcPercent(periodSummary.total, periodSummary.lastMonth) ==
@@ -2443,7 +2676,7 @@ export default function DashboardScreen({ session, profile, branches }) {
                   <View style={styles.kpiCard}>
                     <Text style={styles.kpiTitle}>전년 대비</Text>
                     <Text style={styles.kpiValue}>
-                      {formatAmount(periodSummary.lastYear)}
+                      {formatAmountPlain(periodSummary.lastYear)}
                     </Text>
                     <Text style={styles.cardSub}>
                       {calcPercent(periodSummary.total, periodSummary.lastYear) ==
@@ -2818,7 +3051,7 @@ export default function DashboardScreen({ session, profile, branches }) {
           <View>
             <Text style={styles.title}>지점 매출 현황</Text>
             <Text style={styles.subtitle}>
-              {profile?.role === 'admin' ? '관리자' : '점장'} · {branchName}
+              {profile?.role === 'admin' ? '관리자' : '점장'} · {displayBranchName}
             </Text>
           </View>
           <Pressable
@@ -2832,8 +3065,10 @@ export default function DashboardScreen({ session, profile, branches }) {
         {activeTab === 'home' ? (
           <>
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>오늘 총매출</Text>
-              <Text style={styles.cardValue}>{formatAmount(todayTotal)}</Text>
+              <Text style={styles.cardTitle}>
+                {homeUseYesterdayTotal ? '어제' : '오늘'} 총매출
+              </Text>
+              <Text style={styles.cardValue}>{formatAmountPlain(todayTotal)}</Text>
               {homeMissingBranches.length ? (
                 <Text style={styles.cardNote}>
                   {homeMissingBranches.join(', ')} 제외
@@ -2852,19 +3087,22 @@ export default function DashboardScreen({ session, profile, branches }) {
                 {managerBranches.map((branch) => (
                   <View key={branch.id} style={[styles.card, styles.cardHalf]}>
                     <Text style={styles.cardTitle}>
-                      오늘 {branchLabelMap[branch.name] || branch.name} 매출
+                      {homeUseYesterdayBranches ? '어제' : '오늘'}{' '}
+                      {branchLabelMap[branch.name] || branch.name} 매출
                     </Text>
                     <Text style={styles.cardValue}>
-                      {formatAmount(homeBranchTotals[branch.id])}
+                      {formatAmountPlain(homeBranchTotals[branch.id])}
                     </Text>
                   </View>
                 ))}
               </View>
             ) : (
               <View style={styles.card}>
-                <Text style={styles.cardTitle}>오늘 {branchName} 매출</Text>
+                <Text style={styles.cardTitle}>
+                  {homeUseYesterdayBranches ? '어제' : '오늘'} {branchName} 매출
+                </Text>
                 <Text style={styles.cardValue}>
-                  {formatAmount(homeBranchTotal)}
+                  {formatAmountPlain(homeBranchTotal)}
                 </Text>
               </View>
             )}
@@ -2883,6 +3121,10 @@ export default function DashboardScreen({ session, profile, branches }) {
                   []
                 }
                 compareColor="#ef4444"
+                lineColor="#2255ff"
+                compareDashed={false}
+                showComparePoints
+                showComparePointLabels
                 valueFormatter={formatMillionsPlain}
                 showMinMax
                 showCompareMinMax
@@ -2910,7 +3152,11 @@ export default function DashboardScreen({ session, profile, branches }) {
                   key={`recent-${branch.id}`}
                   title={`최근 10일 일매출 (${branchLabelMap[branch.name] || branch.name})`}
                   data={recentSeriesByBranch[branch.id] || []}
-                  valueFormatter={formatMillionsPlain}
+                  valueFormatter={
+                    branch.name === '카페 일공구공'
+                      ? formatMillionsTwoPlain
+                      : formatMillionsPlain
+                  }
                   showMinMax
                   labelFormatter={(label) => label.split('/')[1] || label}
                   showPointLabels
@@ -2932,22 +3178,28 @@ export default function DashboardScreen({ session, profile, branches }) {
             )}
 
             {!isAdmin ? (
-              managerBranches.map((branch) => (
-                <BarChartSimple
-                  key={`week-${branch.id}`}
-                  title={`이번주 ${branchLabelMap[branch.name] || branch.name} 점심, 저녁 매출`}
-                  data={weekSeriesByBranch[branch.id]?.dinner || []}
-                  compareData={weekSeriesByBranch[branch.id]?.lunch || []}
-                  valueFormatter={formatMillionsPlain}
-                  showMinMax
-                  minOverride={chartMinByBranch[branch.id]?.weekMin ?? null}
-                  primaryLabel="저녁"
-                  compareLabel="점심"
-                  showLegend
-                  showMinLeft
-                  compareFirst
-                />
-              ))
+              managerBranches
+                .filter((branch) => branch.name !== '카페 일공구공')
+                .map((branch) => (
+                  <BarChartSimple
+                    key={`week-${branch.id}`}
+                    title={`요일별 ${branchLabelMap[branch.name] || branch.name}`}
+                    data={weekSeriesByBranch[branch.id]?.dinner || []}
+                    compareData={weekSeriesByBranch[branch.id]?.lunch || []}
+                    valueFormatter={formatMillionsPlain}
+                    showMinMax
+                    minOverride={
+                      managerGroup === 'hanwoo'
+                        ? hanwooWeekMinOverride
+                        : chartMinByBranch[branch.id]?.weekMin ?? null
+                    }
+                    primaryLabel="저녁"
+                    compareLabel="점심"
+                    showLegend
+                    showMinLeft
+                    compareFirst
+                  />
+                ))
             ) : (
               <BarChartSimple
                 title="이번주 점심, 저녁 매출"
@@ -2976,6 +3228,7 @@ export default function DashboardScreen({ session, profile, branches }) {
                       style={styles.entryInput}
                       keyboardType="numeric"
                       placeholder={branch.name}
+                      placeholderTextColor="#98a2b3"
                       value={entryMidByBranch[branch.id] || ''}
                       onChangeText={(value) =>
                         setEntryMidByBranch((prev) => ({
@@ -2995,6 +3248,7 @@ export default function DashboardScreen({ session, profile, branches }) {
                       style={styles.entryInput}
                       keyboardType="numeric"
                       placeholder={branch.name}
+                      placeholderTextColor="#98a2b3"
                       value={entryTotalByBranch[branch.id] || ''}
                       onChangeText={(value) =>
                         setEntryTotalByBranch((prev) => ({
@@ -3015,7 +3269,7 @@ export default function DashboardScreen({ session, profile, branches }) {
             ) : (
               <View style={styles.card}>
                 <Text style={styles.cardTitle}>
-                  {format(new Date(), 'yyyy-MM-dd')} | {branchName}
+                  {format(new Date(), 'yyyy-MM-dd')} | {displayBranchName}
                 </Text>
                 {isAdmin ? (
                   <BranchPicker
@@ -3290,6 +3544,17 @@ export default function DashboardScreen({ session, profile, branches }) {
               ) : (
                 <Text style={styles.emptyText}>등록된 내역이 없습니다.</Text>
               )}
+              {!isAdmin && managerBranches.length ? (
+                <View style={styles.webCard}>
+                  {managerBranches.map((branch) => (
+                    <Text key={branch.id} style={styles.summaryItem}>
+                      {branchLabelMap[branch.name] || branch.name}{' '}
+                      {format(monthCursor, 'M월')} 합계:{' '}
+                      {formatAmount(monthlyTotalsByBranch[branch.id] ?? null)}
+                    </Text>
+                  ))}
+                </View>
+              ) : null}
             </View>
           </>
         )}
@@ -3966,16 +4231,16 @@ const styles = StyleSheet.create({
     borderBottomColor: '#f1f5f9',
   },
   compareName: {
-    flex: 1.6,
+    flex: 1.5,
     color: '#101828',
   },
   compareValue: {
-    flex: 1,
+    flex: 0.9,
     textAlign: 'center',
     color: '#101828',
   },
   compareTrend: {
-    width: 40,
+    width: 52,
     textAlign: 'right',
     color: '#101828',
   },
@@ -4006,6 +4271,12 @@ const styles = StyleSheet.create({
   },
   tableDateCellMobile: {
     width: 90,
+  },
+  branchSalesValueCell: {
+    width: 90,
+  },
+  branchSalesTable: {
+    minWidth: 300,
   },
   tableTotalCell: {
     width: 120,

@@ -99,9 +99,7 @@ export default function App() {
     return (
       <SafeAreaProvider>
         <View style={styles.center}>
-          <Text style={styles.errorText}>
-            프로필이 없습니다. 관리자에게 계정 설정을 요청하세요.
-          </Text>
+          <ActivityIndicator size="large" color="#101828" />
         </View>
       </SafeAreaProvider>
     );

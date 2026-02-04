@@ -1,5 +1,4 @@
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
-import { Picker } from '@react-native-picker/picker';
 import { useState } from 'react';
 
 export default function BranchPicker({
@@ -20,51 +19,53 @@ export default function BranchPicker({
   return (
     <View style={styles.wrapper}>
       {label ? <Text style={styles.label}>{label}</Text> : null}
-      <View style={styles.pickerWrapper}>
-        <Pressable
-          style={[styles.iosButton, disabled && styles.iosButtonDisabled]}
-          onPress={() => {
-            if (!disabled) setIosOpen(true);
-          }}
-        >
-          <Text style={styles.iosButtonText}>{selectedLabel}</Text>
-          <Text style={styles.iosButtonIcon}>⌄</Text>
-        </Pressable>
-      </View>
-      <Modal visible={iosOpen} transparent animationType="fade">
-        <Pressable style={styles.modalBackdrop} onPress={() => setIosOpen(false)}>
-          <View style={styles.modalSheet}>
-            <Text style={styles.modalTitle}>지점 선택</Text>
-            <ScrollView>
-              {branches.map((branch) => {
-                const isActive = branch.id === value;
-                return (
-                  <Pressable
-                    key={branch.id}
-                    onPress={() => {
-                      onChange(branch.id);
-                      setIosOpen(false);
-                    }}
-                    style={[
-                      styles.modalItem,
-                      isActive && styles.modalItemActive,
-                    ]}
-                  >
-                    <Text
+      <>
+        <View style={styles.pickerWrapper}>
+          <Pressable
+            style={[styles.iosButton, disabled && styles.iosButtonDisabled]}
+            onPress={() => {
+              if (!disabled) setIosOpen(true);
+            }}
+          >
+            <Text style={styles.iosButtonText}>{selectedLabel}</Text>
+            <Text style={styles.iosButtonIcon}>⌄</Text>
+          </Pressable>
+        </View>
+        <Modal visible={iosOpen} transparent animationType="fade">
+          <Pressable style={styles.modalBackdrop} onPress={() => setIosOpen(false)}>
+            <View style={styles.modalSheet}>
+              <Text style={styles.modalTitle}>지점 선택</Text>
+              <ScrollView>
+                {branches.map((branch) => {
+                  const isActive = branch.id === value;
+                  return (
+                    <Pressable
+                      key={branch.id}
+                      onPress={() => {
+                        onChange(branch.id);
+                        setIosOpen(false);
+                      }}
                       style={[
-                        styles.modalItemText,
-                        isActive && styles.modalItemTextActive,
+                        styles.modalItem,
+                        isActive && styles.modalItemActive,
                       ]}
                     >
-                      {branch.name}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          </View>
-        </Pressable>
-      </Modal>
+                      <Text
+                        style={[
+                          styles.modalItemText,
+                          isActive && styles.modalItemTextActive,
+                        ]}
+                      >
+                        {branch.name}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          </Pressable>
+        </Modal>
+      </>
     </View>
   );
 }
@@ -105,7 +106,8 @@ const styles = StyleSheet.create({
   modalBackdrop: {
     flex: 1,
     backgroundColor: 'rgba(15, 23, 42, 0.4)',
-    justifyContent: 'flex-end',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   modalSheet: {
     backgroundColor: '#ffffff',
@@ -115,6 +117,7 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 24,
     maxHeight: '70%',
+    width: '90%',
   },
   modalTitle: {
     fontSize: 16,

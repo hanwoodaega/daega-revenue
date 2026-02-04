@@ -43,6 +43,10 @@ export function LineChartSimple({
   maxWidth,
   compareData,
   compareColor = '#94a3b8',
+  lineColor = '#2255ff',
+  compareDashed = true,
+  showComparePoints = false,
+  showComparePointLabels = false,
   compareDataAlt,
   compareAltColor = '#cbd5f5',
   rangeMode = 'combined',
@@ -270,7 +274,7 @@ export function LineChartSimple({
                 fill="none"
                 stroke={compareColor}
                 strokeWidth="2"
-                strokeDasharray="8 4"
+                strokeDasharray={compareDashed ? '8 4' : undefined}
               />
             ))}
             {points.map((segment, index) => (
@@ -278,7 +282,7 @@ export function LineChartSimple({
                 key={`primary-${index}`}
                 points={segment}
                 fill="none"
-                stroke="#2255ff"
+                stroke={lineColor}
                 strokeWidth="2"
               />
             ))}
@@ -341,7 +345,7 @@ export function LineChartSimple({
                   width={10}
                   height={10}
                   rx={5}
-                  fill="#2255ff"
+                  fill={lineColor}
                   onMouseEnter={
                     Platform.OS === 'web'
                       ? () =>
@@ -373,6 +377,46 @@ export function LineChartSimple({
               </G>
             );
           })}
+          {showComparePoints && compareData
+            ? compareData.map((item, index) => {
+                const rawValue = item.value;
+                const value =
+                  rawValue == null || rawValue === '' ? NaN : Number(rawValue);
+                if (!Number.isFinite(value)) {
+                  return null;
+                }
+                const innerWidth = width - chartPadding * 2;
+                const innerHeight = height - chartPadding * 2;
+                const x =
+                  chartPadding +
+                  (innerWidth * index) / Math.max(1, compareData.length - 1);
+                const y =
+                  chartPadding + innerHeight * (1 - (value - adjustedMin) / range);
+                return (
+                  <G key={`compare-point-${item.label}`}>
+                    {showComparePointLabels ? (
+                      <SvgText
+                        x={x}
+                        y={Math.max(chartPadding + 14, y - 18)}
+                        fontSize="14"
+                        fill="#101828"
+                        textAnchor="middle"
+                      >
+                        {valueFormatter ? valueFormatter(value) : formatCurrency(value)}
+                      </SvgText>
+                    ) : null}
+                    <Rect
+                      x={x - 5}
+                      y={y - 5}
+                      width={10}
+                      height={10}
+                      rx={5}
+                      fill={compareColor}
+                    />
+                  </G>
+                );
+              })
+            : null}
           {hovered ? (
             <G pointerEvents="none">
               <Rect
@@ -627,10 +671,10 @@ export function BarChartSimple({
                         x={xCompareCenter - compareLabelWidth / 2}
                         y={compareLabelY - 8}
                         width={compareLabelWidth}
-                        height={12}
+                      height={14}
                         rx={3}
                         fill="#ffffff"
-                        opacity={0.9}
+                      opacity={0.96}
                       />
                       <SvgText
                         x={xCompareCenter}
@@ -649,10 +693,10 @@ export function BarChartSimple({
                         x={xPrimaryCenter - labelWidth / 2}
                         y={labelY - 8}
                         width={labelWidth}
-                        height={12}
+                      height={14}
                         rx={3}
                         fill="#ffffff"
-                        opacity={0.9}
+                      opacity={0.96}
                       />
                       <SvgText
                         x={xPrimaryCenter}

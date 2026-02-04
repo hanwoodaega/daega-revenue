@@ -150,6 +150,36 @@ $$;
 
 grant execute on function set_profile_active(boolean) to authenticated;
 
+create or replace function is_manager_branch_allowed(target_branch_id uuid)
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select exists (
+    select 1
+    from profiles p
+    join branches b_user on b_user.id = p.branch_id
+    join branches b_target on b_target.id = target_branch_id
+    where p.id = auth.uid()
+      and p.role = 'manager'
+      and (
+        b_user.id = target_branch_id
+        or (
+          b_user.name in ('한우대가 순천점', '한우대가 광양점')
+          and b_target.name in ('한우대가 순천점', '한우대가 광양점')
+        )
+        or (
+          b_user.name in ('대가정육마트', '카페 일공구공')
+          and b_target.name in ('대가정육마트', '카페 일공구공')
+        )
+      )
+  );
+$$;
+
+grant execute on function is_manager_branch_allowed(uuid) to authenticated;
+
 create policy "sales readable by admin or branch manager"
   on sales_entries for select
   to authenticated
@@ -159,7 +189,7 @@ create policy "sales readable by admin or branch manager"
       from profiles
       where id = auth.uid()
       and (
-        role = 'admin' or branch_id = sales_entries.branch_id
+        role = 'admin' or is_manager_branch_allowed(sales_entries.branch_id)
       )
     )
   );
@@ -174,7 +204,7 @@ create policy "sales insertable by admin or branch manager"
       from profiles
       where id = auth.uid()
       and (
-        role = 'admin' or branch_id = sales_entries.branch_id
+        role = 'admin' or is_manager_branch_allowed(sales_entries.branch_id)
       )
     )
   );
@@ -196,7 +226,7 @@ create policy "sales updatable by admin or branch manager"
           p.role = 'admin'
           or (
             p.role = 'manager'
-            and p.branch_id = sales_entries.branch_id
+            and is_manager_branch_allowed(sales_entries.branch_id)
           )
         )
     )
@@ -210,7 +240,7 @@ create policy "sales updatable by admin or branch manager"
           p.role = 'admin'
           or (
             p.role = 'manager'
-            and p.branch_id = sales_entries.branch_id
+            and is_manager_branch_allowed(sales_entries.branch_id)
           )
         )
     )
@@ -230,7 +260,7 @@ create policy "sales deletable by admin or branch manager"
           p.role = 'admin'
           or (
             p.role = 'manager'
-            and p.branch_id = sales_entries.branch_id
+            and is_manager_branch_allowed(sales_entries.branch_id)
           )
         )
     )
